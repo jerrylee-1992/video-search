@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Footage Search"
+  short_description: "Search and open indexed local video shots"
+  default_prompt: "Use $video-footage-search to find matching shots in my local video library."

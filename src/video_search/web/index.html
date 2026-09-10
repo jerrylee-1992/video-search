@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Footage Search</title>
+  <style>
+    :root { color-scheme: light; --ink:#262421; --muted:#77716a; --paper:#f7f3ed; --card:#fffdf9; --line:#e5ddd3; --rose:#8f5d62; --rose-dark:#694247; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); background:radial-gradient(circle at 12% 8%,#fff 0,transparent 28%),linear-gradient(145deg,#f9f5ef,#efe7dd); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC",sans-serif; }
+    main { width:min(1180px,calc(100% - 36px)); margin:0 auto; padding:64px 0 100px; }
+    header { display:grid; grid-template-columns:1fr auto; align-items:end; gap:24px; margin-bottom:32px; }
+    .eyebrow { color:var(--rose); font-size:12px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
+    h1 { margin:8px 0 6px; font-family:Georgia,"Songti SC",serif; font-size:clamp(36px,6vw,66px); font-weight:500; letter-spacing:-.04em; }
+    .sub { color:var(--muted); max-width:640px; line-height:1.7; }
+    .status { color:var(--muted); font-size:13px; white-space:nowrap; }
+    .searchbar { display:flex; gap:10px; padding:10px; background:rgba(255,253,249,.86); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 45px rgba(78,57,45,.08); backdrop-filter:blur(14px); }
+    input { flex:1; min-width:0; border:0; outline:0; background:transparent; padding:12px 14px; font-size:17px; color:var(--ink); }
+    button { border:0; border-radius:12px; padding:0 22px; background:var(--rose); color:#fff; font-weight:650; cursor:pointer; transition:.2s ease; }
+    button:hover { background:var(--rose-dark); transform:translateY(-1px); }
+    .hints { display:flex; flex-wrap:wrap; gap:8px; margin:14px 2px 34px; }
+    .hint { border:1px solid var(--line); border-radius:999px; padding:7px 11px; color:var(--muted); background:rgba(255,255,255,.45); font-size:12px; cursor:pointer; }
+    .meta { min-height:24px; margin-bottom:14px; color:var(--muted); font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; }
+    article { overflow:hidden; background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:0 10px 28px rgba(67,49,38,.06); cursor:pointer; transition:.2s ease; }
+    article:hover { transform:translateY(-3px); box-shadow:0 16px 38px rgba(67,49,38,.11); }
+    .thumb { position:relative; aspect-ratio:16/9; background:linear-gradient(135deg,#d8c3bd,#766c69); overflow:hidden; }
+    .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .duration { position:absolute; right:10px; bottom:9px; padding:5px 7px; border-radius:7px; color:#fff; background:rgba(25,21,20,.75); font-size:11px; }
+    .body { padding:16px; }
+    h2 { margin:0 0 12px; font-size:16px; line-height:1.5; font-weight:650; }
+    .tags { display:flex; flex-wrap:wrap; gap:6px; }
+    .tag { padding:5px 8px; border-radius:7px; color:#6d5554; background:#f4eae7; font-size:11px; }
+    .path { margin-top:13px; color:#9a928a; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    dialog { width:min(980px,calc(100% - 30px)); max-height:92vh; padding:0; border:0; border-radius:18px; overflow:auto; background:#161514; box-shadow:0 30px 90px rgba(0,0,0,.4); }
+    dialog::backdrop { background:rgba(31,26,24,.65); backdrop-filter:blur(6px); }
+    video { width:100%; max-height:58vh; display:block; background:#000; }
+    .playerbar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:14px 16px; color:#eee; }
+    .playerbar button { padding:9px 14px; background:#3a3634; }
+    .analysis { padding:24px; color:var(--ink); background:var(--paper); }
+    .analysis-loading,.analysis-error { padding:22px; border:1px dashed #cfc3b7; border-radius:12px; text-align:center; color:var(--muted); }
+    .detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .detail-section { padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--card); }
+    .detail-section.wide { grid-column:1/-1; }
+    .detail-section h3 { margin:0 0 13px; color:var(--rose-dark); font-size:14px; letter-spacing:.04em; }
+    .detail-summary { margin:0; color:#403b37; line-height:1.75; }
+    .detail-list { display:grid; gap:9px; margin:0; }
+    .detail-row { display:grid; grid-template-columns:72px 1fr; gap:12px; line-height:1.55; }
+    .detail-row dt { color:var(--muted); }
+    .detail-row dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+    .person-list,.event-list { display:grid; gap:10px; }
+    .person,.event { padding:12px; border-radius:10px; background:#f7f1ea; }
+    .person-title,.event-title { font-weight:700; line-height:1.45; }
+    .person p,.event p { margin:7px 0 0; color:#5f5852; line-height:1.65; }
+    .detail-meta { display:flex; flex-wrap:wrap; gap:6px 10px; margin-top:7px; color:var(--muted); font-size:12px; }
+    .object-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .object-chip { padding:7px 10px; border-radius:999px; color:#6d5554; background:#f4eae7; font-size:12px; }
+    .empty { grid-column:1/-1; padding:70px 20px; border:1px dashed #cfc3b7; border-radius:18px; text-align:center; color:var(--muted); }
+    @media (max-width:650px) { main{padding-top:36px} header{grid-template-columns:1fr}.status{display:none}.searchbar{flex-direction:column}.searchbar button{height:46px}.grid,.detail-grid{grid-template-columns:1fr}.detail-section.wide{grid-column:auto}.analysis{padding:16px}.detail-row{grid-template-columns:64px 1fr} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><div class="eyebrow">Local video archive</div><h1>镜头搜索</h1><div class="sub">用自然语言搜索本机视频素材，直接定位到每个视频中的准确镜头范围。</div></div>
+    <div class="status" id="status">正在读取索引…</div>
+  </header>
+  <form class="searchbar" id="form"><input id="query" autofocus placeholder="例如：傍晚草坪上，新人拥抱，镜头缓慢推进"><button>自然语言搜索</button></form>
+  <div class="hints"><span class="hint">新娘整理头纱</span><span class="hint">when:夜晚 宾客跳舞</span><span class="hint">environment:户外草坪 新人拥抱</span><span class="hint">action:挥手</span></div>
+  <div class="meta" id="meta">输入描述开始搜索</div><section class="grid" id="results"></section>
+</main>
+<dialog id="player"><video id="video" controls playsinline></video><div class="playerbar"><span id="player-title"></span><button id="close" type="button">关闭</button></div><section class="analysis" id="analysis-details" aria-live="polite"><div class="analysis-loading">正在读取镜头分析…</div></section></dialog>
+<script src="/request-gate.js"></script>
+<script>
+const form=document.querySelector('#form'),input=document.querySelector('#query'),grid=document.querySelector('#results'),meta=document.querySelector('#meta');
+const dialog=document.querySelector('#player'),video=document.querySelector('#video'),playerTitle=document.querySelector('#player-title'),analysisDetails=document.querySelector('#analysis-details');
+let detailRequest=0;
+const seconds=value=>{const m=Math.floor(value/60),s=(value%60).toFixed(1).padStart(4,'0');return `${m}:${s}`};
+const hasValue=value=>value!==null&&value!==undefined&&value!=='';
+const confidence=value=>typeof value==='number'?`置信度 ${Math.round(value*100)}%`:null;
+
+function makeSection(title,{wide=false}={}){
+  const section=document.createElement('section');
+  section.className=`detail-section${wide?' wide':''}`;
+  const heading=document.createElement('h3');
+  heading.textContent=title;
+  section.appendChild(heading);
+  return section;
+}
+
+function addRows(section,rows){
+  const list=document.createElement('dl');
+  list.className='detail-list';
+  rows.filter(([,value])=>hasValue(value)).forEach(([label,value])=>{
+    const row=document.createElement('div');
+    row.className='detail-row';
+    const term=document.createElement('dt'),description=document.createElement('dd');
+    term.textContent=label;
+    description.textContent=String(value);
+    row.append(term,description);
+    list.appendChild(row);
+  });
+  section.appendChild(list);
+}
+
+function renderShotDetail(detail){
+  const analysis=detail.analysis||{};
+  analysisDetails.replaceChildren();
+  const detailGrid=document.createElement('div');
+  detailGrid.className='detail-grid';
+
+  const summary=analysis.summary||detail.summary;
+  if(hasValue(summary)){
+    const section=makeSection('内容概述',{wide:true});
+    const text=document.createElement('p');
+    text.className='detail-summary';
+    text.textContent=summary;
+    section.appendChild(text);
+    detailGrid.appendChild(section);
+  }
+
+  const people=Array.isArray(analysis.who)&&analysis.who.length?analysis.who:(detail.roles||[]);
+  if(people.length){
+    const section=makeSection('人物');
+    const list=document.createElement('div');
+    list.className='person-list';
+    people.forEach(person=>{
+      const card=document.createElement('div');
+      card.className='person';
+      const title=document.createElement('div');
+      title.className='person-title';
+      title.textContent=[person.role,hasValue(person.count)?`${person.count} 人`:null].filter(Boolean).join(' · ');
+      card.appendChild(title);
+      if(hasValue(person.appearance)){
+        const appearance=document.createElement('p');
+        appearance.textContent=person.appearance;
+        card.appendChild(appearance);
+      }
+      const score=confidence(person.confidence);
+      if(score){
+        const info=document.createElement('div');
+        info.className='detail-meta';
+        info.textContent=score;
+        card.appendChild(info);
+      }
+      list.appendChild(card);
+    });
+    section.appendChild(list);
+    detailGrid.appendChild(section);
+  }
+
+  const where=analysis.where||{},when=analysis.when||{};
+  const sceneRows=[['环境',where.environment||detail.environment],['场地',where.venue||detail.venue],['背景',where.background],['时段',when.period||detail.when_period],['光线',when.lighting||detail.lighting]];
+  if(sceneRows.some(([,value])=>hasValue(value))){
+    const section=makeSection('场景与时间');
+    addRows(section,sceneRows);
+    detailGrid.appendChild(section);
+  }
+
+  const events=Array.isArray(analysis.events)&&analysis.events.length?analysis.events:(detail.events||[]);
+  if(events.length){
+    const section=makeSection('动作过程',{wide:true});
+    const list=document.createElement('div');
+    list.className='event-list';
+    [...events].sort((left,right)=>(left.sequence||0)-(right.sequence||0)).forEach((event,index)=>{
+      const card=document.createElement('div');
+      card.className='event';
+      const title=document.createElement('div');
+      title.className='event-title';
+      title.textContent=`${index+1}. ${[event.subject_role,event.action].filter(Boolean).join(' — ')}`;
+      card.appendChild(title);
+      const facts=[hasValue(event.object)?`物体：${event.object}`:null,hasValue(event.target)?`目标：${event.target}`:null,confidence(event.confidence)].filter(Boolean);
+      if(facts.length){
+        const info=document.createElement('div');
+        info.className='detail-meta';
+        facts.forEach(fact=>{const item=document.createElement('span');item.textContent=fact;info.appendChild(item)});
+        card.appendChild(info);
+      }
+      if(hasValue(event.description)){
+        const description=document.createElement('p');
+        description.textContent=event.description;
+        card.appendChild(description);
+      }
+      list.appendChild(card);
+    });
+    section.appendChild(list);
+    detailGrid.appendChild(section);
+  }
+
+  const objects=Array.isArray(analysis.objects)&&analysis.objects.length?analysis.objects:(detail.objects||[]);
+  if(objects.length){
+    const section=makeSection('可见物体');
+    const list=document.createElement('div');
+    list.className='object-list';
+    objects.forEach(object=>{
+      const chip=document.createElement('span');
+      chip.className='object-chip';
+      chip.textContent=[object.name,confidence(object.confidence)].filter(Boolean).join(' · ');
+      list.appendChild(chip);
+    });
+    section.appendChild(list);
+    detailGrid.appendChild(section);
+  }
+
+  const camera=analysis.camera||{};
+  const cameraRows=[['景别',camera.shot_size],['运动',camera.movement],['机位',camera.viewpoint]];
+  if(cameraRows.some(([,value])=>hasValue(value))){
+    const section=makeSection('镜头语言');
+    addRows(section,cameraRows);
+    detailGrid.appendChild(section);
+  }
+
+  const source=makeSection('素材来源',{wide:true});
+  addRows(source,[['文件',detail.video_path],['镜头范围',`${seconds(detail.start_ms/1000)}–${seconds(detail.end_ms/1000)}`]]);
+  detailGrid.appendChild(source);
+  analysisDetails.appendChild(detailGrid);
+}
+
+async function status(){const data=await fetch('/api/status').then(response=>response.json());document.querySelector('#status').textContent=`${data.videos.total} 个视频 · ${data.ready_shots}/${data.shots} 个镜头可搜索`}
+const tokenQuery=item=>item.shot_token?`?token=${encodeURIComponent(item.shot_token)}`:'';
+function play(item){if(item.expired)return;video.src=`/media/${item.shot_id}${tokenQuery(item)}`;video.dataset.start=item.start_seconds;video.dataset.end=item.end_seconds;playerTitle.textContent=`${item.summary} · ${seconds(item.start_seconds)}–${seconds(item.end_seconds)}`;if(!dialog.open)dialog.showModal();dialog.scrollTop=0;loadShotDetail(item.shot_id,item.shot_token);video.addEventListener('loadedmetadata',()=>{video.currentTime=Number(video.dataset.start);video.play().catch(()=>{})},{once:true})}
+function render(data){input.value=data.query||'';const expired=data.expired_count?` · ${data.expired_count} 个已过期`:'';meta.textContent=`找到 ${data.count} 个镜头${expired}`;grid.innerHTML='';if(!data.count){grid.innerHTML='<div class="empty">没有找到符合条件的镜头，试试更宽泛的描述。</div>';return}data.results.forEach((item,index)=>{const card=document.createElement('article');const tags=[item.when_period,item.environment,item.venue].filter(Boolean);card.dataset.shotId=item.shot_id;card.innerHTML=item.expired?`<div class="empty">${index+1}. 此镜头已过期，请重新搜索。</div>`:`<div class="thumb"><img src="/thumbnail/${item.shot_id}${tokenQuery(item)}" alt="" onerror="this.style.display='none'"><span class="duration">${seconds(item.start_seconds)}–${seconds(item.end_seconds)}</span></div><div class="body"><h2></h2><div class="tags"></div><div class="path"></div></div>`;if(item.expired){grid.appendChild(card);return}card.querySelector('h2').textContent=`${index+1}. ${item.summary}`;card.querySelector('.path').textContent=item.video_path;tags.forEach(tag=>{const el=document.createElement('span');el.className='tag';el.textContent=tag;card.querySelector('.tags').appendChild(el)});card.addEventListener('click',()=>play(item));grid.appendChild(card)});const requestedShot=new URLSearchParams(location.search).get('shot');if(requestedShot){const item=data.results.find(result=>!result.expired&&String(result.shot_id)===requestedShot);if(item)play(item)}}
+async function loadShotDetail(shotId,shotToken){
+  const request=++detailRequest;
+  analysisDetails.innerHTML='<div class="analysis-loading">正在读取镜头分析…</div>';
+  try{const response=await fetch(`/api/shots/${shotId}${shotToken?`?token=${encodeURIComponent(shotToken)}`:''}`);if(!response.ok)throw new Error('missing');const detail=await response.json();if(request===detailRequest)renderShotDetail(detail)}catch(error){if(request!==detailRequest)return;analysisDetails.innerHTML='<div class="analysis-error">无法读取分析详情，视频仍可正常播放。</div>'}
+}
+function search(q){meta.textContent='正在搜索…';grid.innerHTML='';history.replaceState(null,'',searchLocation(q));return latestRequest.run(async()=>{const response=await fetch(`/api/search?q=${encodeURIComponent(q)}`);if(!response.ok)throw new Error('search');return response.json()},render,()=>{meta.textContent='搜索失败，请稍后重试';grid.innerHTML='<div class="empty">无法完成搜索，请检查本地服务后重试。</div>'})}
+function load(){status().catch(()=>{document.querySelector('#status').textContent='索引状态不可用'});const match=location.pathname.match(/^\/search\/session\/([a-f0-9]{32})$/);if(!match){const query=queryFromLocation(location);if(query)search(query);return}meta.textContent='正在读取已保存的搜索结果…';return latestRequest.run(async()=>{const response=await fetch(`/api/search-sessions/${match[1]}`);if(!response.ok)throw new Error('missing');return response.json()},render,()=>{meta.textContent='搜索会话不存在或已不可用';grid.innerHTML='<div class="empty">无法读取这次搜索结果，请重新搜索。</div>'})}
+video.addEventListener('timeupdate',()=>{if(video.currentTime>=Number(video.dataset.end))video.pause()});
+document.querySelector('#close').addEventListener('click',()=>{video.pause();dialog.close()});
+form.addEventListener('submit',event=>{event.preventDefault();const q=input.value.trim();if(q)search(q)});
+document.querySelectorAll('.hint').forEach(el=>el.addEventListener('click',()=>{input.value=el.textContent;search(input.value)}));
+load();
+</script>
+</body>
+</html>

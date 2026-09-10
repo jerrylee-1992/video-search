@@ -1,0 +1,258 @@
+{
+  "version": "wedding-real-v1",
+  "cases": [
+    {
+      "id": "exchange-vows",
+      "category": "action",
+      "query": "新人交换结婚誓言",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 0, "end_ms": 5933},
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 5933, "end_ms": 14433},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 16533, "end_ms": 19533},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 29000, "end_ms": 31100},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 31100, "end_ms": 33933}
+      ]
+    },
+    {
+      "id": "guest-procession",
+      "category": "action",
+      "query": "宾客列队走进婚礼现场",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 0, "end_ms": 5933}
+      ]
+    },
+    {
+      "id": "guests-watch-ceremony",
+      "category": "who",
+      "query": "宾客坐在草坪上观看婚礼",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 5933, "end_ms": 14433}
+      ]
+    },
+    {
+      "id": "groom-feather-shoulder",
+      "category": "who",
+      "query": "新郎披着白色羽毛装饰注视新娘",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 14433, "end_ms": 16767}
+      ]
+    },
+    {
+      "id": "walk-to-helicopter",
+      "category": "action",
+      "query": "新人拥抱后走向直升机并起飞",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 16767, "end_ms": 27400}
+      ]
+    },
+    {
+      "id": "couple-smiles-in-helicopter",
+      "category": "who",
+      "query": "直升机里的新郎新娘相视微笑",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 27400, "end_ms": 28433},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 37367, "end_ms": 40767}
+      ]
+    },
+    {
+      "id": "helicopter-over-valley",
+      "category": "where",
+      "query": "乘坐直升机俯瞰山谷和湖泊",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 28433, "end_ms": 30700},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 44333, "end_ms": 47733}
+      ]
+    },
+    {
+      "id": "bride-on-hay-slope",
+      "category": "who",
+      "query": "新娘坐在干草覆盖的山坡上微笑",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 0, "end_ms": 833}
+      ]
+    },
+    {
+      "id": "bride-bouquet-meadow",
+      "category": "object",
+      "query": "新娘拿着花束坐在雪山草甸",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 833, "end_ms": 2667}
+      ]
+    },
+    {
+      "id": "groom-back-to-camera",
+      "category": "composition",
+      "query": "新郎背对镜头站在雪山前的草地",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 833, "end_ms": 2667},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 2667, "end_ms": 5867}
+      ]
+    },
+    {
+      "id": "bride-leaves-cabin",
+      "category": "action",
+      "query": "新娘手拿花束从小木屋走向新郎",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 5867, "end_ms": 9567}
+      ]
+    },
+    {
+      "id": "dress-embroidery-in-wind",
+      "category": "object",
+      "query": "婚纱裙摆上的白色花朵刺绣随风摇曳",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 9567, "end_ms": 11367}
+      ]
+    },
+    {
+      "id": "pink-purple-bouquet",
+      "category": "object",
+      "query": "新娘戴长头纱手持粉色紫色花束",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 11367, "end_ms": 13133}
+      ]
+    },
+    {
+      "id": "couple-near-modern-building",
+      "category": "where",
+      "query": "现代建筑和秋色树木旁的新人",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 13133, "end_ms": 16533}
+      ]
+    },
+    {
+      "id": "groom-reads-by-lake",
+      "category": "action",
+      "query": "新郎在雪山湖边手持书本阅读",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 16533, "end_ms": 19533}
+      ]
+    },
+    {
+      "id": "bride-hands-bouquet",
+      "category": "action",
+      "query": "新娘把花束递给新郎",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 19533, "end_ms": 24500}
+      ]
+    },
+    {
+      "id": "kiss-before-snow-mountain",
+      "category": "action",
+      "query": "雪山前新人亲吻",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 24500, "end_ms": 29000},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 62300, "end_ms": 63832}
+      ]
+    },
+    {
+      "id": "groom-holds-letter",
+      "category": "object",
+      "query": "新郎手拿书信面对新娘",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 29000, "end_ms": 31100},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 31100, "end_ms": 33933}
+      ]
+    },
+    {
+      "id": "pilot-controls-instruments",
+      "category": "action",
+      "query": "飞行员操作飞机仪表盘",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 33933, "end_ms": 37367}
+      ]
+    },
+    {
+      "id": "groom-adjusts-headset",
+      "category": "action",
+      "query": "新郎在直升机里调整绿色耳机",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 37367, "end_ms": 40767}
+      ]
+    },
+    {
+      "id": "helicopter-runway-shadow",
+      "category": "action",
+      "query": "直升机飞过机场跑道并投下影子",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 40767, "end_ms": 44333}
+      ]
+    },
+    {
+      "id": "passengers-watch-mountains",
+      "category": "where",
+      "query": "乘客透过直升机侧窗观看雪山",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 44333, "end_ms": 47733}
+      ]
+    },
+    {
+      "id": "clouds-over-snow-valley",
+      "category": "where",
+      "query": "云雾在积雪覆盖的山谷中流动",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 47733, "end_ms": 51200}
+      ]
+    },
+    {
+      "id": "clouds-over-mountain-lake",
+      "category": "where",
+      "query": "云层漂浮在雪山湖泊和山脚之间",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 51200, "end_ms": 54700}
+      ]
+    },
+    {
+      "id": "ring-hand-closeup",
+      "category": "composition",
+      "query": "新郎把新娘戴钻戒的手放在胸前特写",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 54700, "end_ms": 57133}
+      ]
+    },
+    {
+      "id": "couple-eyes-closed",
+      "category": "action",
+      "query": "新人闭眼依偎并轻抚对方",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 57133, "end_ms": 59267}
+      ]
+    },
+    {
+      "id": "couple-holds-hands-hugs",
+      "category": "action",
+      "query": "雪山湖边新人牵手后拥抱",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 59267, "end_ms": 62300}
+      ]
+    },
+    {
+      "id": "couple-smiles-kisses-hugs",
+      "category": "action",
+      "query": "雪山湖边新人依次微笑亲吻和拥抱",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 62300, "end_ms": 63832}
+      ]
+    },
+    {
+      "id": "daytime-lawn-wedding-filter",
+      "category": "when",
+      "query": "when:白天 where:户外草坪 新人",
+      "expected": [
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 0, "end_ms": 5933},
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 5933, "end_ms": 14433},
+        {"video": "8252a60cfe2fabeb6eb22290113f0178_raw.mp4", "start_ms": 14433, "end_ms": 16767},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 9567, "end_ms": 11367},
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 13133, "end_ms": 16533}
+      ]
+    },
+    {
+      "id": "bride-hands-bouquet-filter",
+      "category": "action",
+      "query": "who:新娘 action:递花 雪山",
+      "expected": [
+        {"video": "c96bc7cb696289d4e250a61ca24f5c0f_raw.mp4", "start_ms": 19533, "end_ms": 24500}
+      ]
+    }
+  ]
+}

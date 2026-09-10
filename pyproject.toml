@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-search"
+version = "0.1.0"
+description = "Local semantic search for silent video footage"
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+mage-mlx = [
+  "mlx-optiq>=0.4.10",
+]
+text-embedding = [
+  "fastembed>=0.8,<0.9",
+]
+mage-local = [
+  "accelerate>=1.0",
+  "numpy>=1.26",
+  "opencv-python>=4.8",
+  "pillow>=10.0",
+  "safetensors>=0.4",
+  "torch>=2.9",
+  "torchvision>=0.24",
+  "transformers>=5.7",
+]
+
+[project.scripts]
+video-search = "video_search.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_search"]
