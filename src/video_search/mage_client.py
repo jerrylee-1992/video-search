@@ -20,12 +20,18 @@ from video_search.media import Segment, probe_video
 
 COMPACT_RETRY_INSTRUCTION = """
 
-上一次输出未通过 JSON 结构校验。请将多帧合并为一个连续镜头，不要逐帧重复描述。
+上一次输出未通过结构或内容质量校验。请将多帧合并为一个连续镜头，不要逐帧重复描述。
 这次必须输出紧凑 JSON：events 最多 3 项，objects 最多 8 项，总长度不超过 1800 个中文字符。
 如果画面没有人物，who 可以为空数组，但仍要描述环境变化和摄影机运动。
 """
 
 DEFAULT_MAGE_MAX_LONG_EDGE = 896
+ANALYSIS_SUMMARY_PLACEHOLDERS = (
+    "一到两句完整描述，必须包含主要人物、场景和动态内容",
+)
+ANALYSIS_UNKNOWN_VALUES = frozenset(
+    {"无法判断", "未知", "不确定", "unknown", "n/a", "na"}
+)
 
 
 def extract_uniform_frames(
@@ -104,6 +110,38 @@ def _analysis_payload(content: str) -> dict[str, object]:
     return payload
 
 
+def _analysis_text_values(value: object) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, dict):
+        return [
+            text
+            for child in value.values()
+            for text in _analysis_text_values(child)
+        ]
+    if isinstance(value, list):
+        return [text for child in value for text in _analysis_text_values(child)]
+    return []
+
+
+def _validate_analysis_quality(payload: dict[str, object]) -> None:
+    summary = payload.get("summary")
+    if isinstance(summary, str) and any(
+        placeholder in summary for placeholder in ANALYSIS_SUMMARY_PLACEHOLDERS
+    ):
+        raise ValueError("Mage-VL response echoed an analysis prompt placeholder")
+
+    text_values = _analysis_text_values(payload)
+    normalized_values = {
+        text.strip("。.!！ ").casefold()
+        for text in text_values
+        if text.strip("。.!！ ")
+    }
+    if normalized_values and normalized_values <= ANALYSIS_UNKNOWN_VALUES:
+        raise ValueError("Mage-VL response contained no meaningful visual description")
+
+
 def analyze_clip(
     *,
     frame_paths: list[Path],
@@ -148,7 +186,10 @@ def analyze_clip(
         raise ValueError("Mage-VL service returned an unexpected response") from error
     if not isinstance(answer, str):
         raise ValueError("Mage-VL response content must be text")
-    return ShotAnalysis.from_dict(_analysis_payload(answer))
+    payload = _analysis_payload(answer)
+    analysis = ShotAnalysis.from_dict(payload)
+    _validate_analysis_quality(payload)
+    return analysis
 
 
 class MageServiceAnalyzer:

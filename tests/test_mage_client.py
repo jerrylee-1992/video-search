@@ -14,6 +14,7 @@ from PIL import Image
 
 from video_search.mage_client import (
     MageServiceAnalyzer,
+    _validate_analysis_quality,
     analyze_clip,
     extract_uniform_frames,
 )
@@ -227,6 +228,150 @@ class MageClientTest(unittest.TestCase):
                 )
                 for request in requests
             ],
+        )
+
+    def test_retries_prompt_placeholder_analysis_with_four_frames(self) -> None:
+        requests: list[dict[str, object]] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers["Content-Length"])
+                request = json.loads(self.rfile.read(length))
+                requests.append(request)
+                content = request["messages"][0]["content"]
+                image_count = sum(item["type"] == "image_url" for item in content)
+                prompt = content[-1]["text"]
+                if image_count == 4 and "内容质量校验" in prompt:
+                    answer_payload = {
+                        "summary": "白色兰花在画面中轻微晃动",
+                        "who": [],
+                        "where": {
+                            "environment": "花卉特写",
+                            "venue": "无法判断",
+                            "background": "虚化的绿色背景",
+                        },
+                        "when": {"period": "白天", "lighting": "柔和自然光"},
+                        "events": [
+                            {
+                                "sequence": 0,
+                                "subject_role": "兰花",
+                                "action": "晃动",
+                                "description": "白色兰花随风轻微晃动",
+                            }
+                        ],
+                        "objects": [{"name": "白色兰花", "confidence": 0.98}],
+                        "camera": {"movement": "固定", "shot_size": "特写"},
+                    }
+                else:
+                    answer_payload = {
+                        "summary": "一到两句完整描述，必须包含主要人物、场景和动态内容",
+                        "who": [
+                            {
+                                "role": "无法判断",
+                                "count": 1,
+                                "appearance": "无法判断",
+                                "confidence": 0.0,
+                            }
+                        ],
+                        "where": {
+                            "environment": "无法判断",
+                            "venue": "无法判断",
+                            "background": "无法判断",
+                        },
+                        "when": {"period": "无法判断", "lighting": "无法判断"},
+                        "events": [
+                            {
+                                "sequence": 0,
+                                "subject_role": "无法判断",
+                                "action": "无法判断",
+                                "object": "无法判断",
+                                "target": "无法判断",
+                                "description": "无法判断",
+                                "confidence": 0.0,
+                            }
+                        ],
+                        "objects": [{"name": "无法判断", "confidence": 0.0}],
+                        "camera": {
+                            "movement": "无法判断",
+                            "shot_size": "无法判断",
+                            "viewpoint": "无法判断",
+                        },
+                    }
+                answer = json.dumps(answer_payload, ensure_ascii=False)
+                body = json.dumps(
+                    {"choices": [{"message": {"content": answer}}]},
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                return
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / "clip.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc2=s=320x180:d=2:r=12",
+                    "-y", str(video),
+                ],
+                check=True,
+            )
+            server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                analyzer = MageServiceAnalyzer(
+                    base_url=f"http://127.0.0.1:{server.server_port}/v1",
+                    model="microsoft/Mage-VL",
+                    api_key="EMPTY",
+                    prompt="只输出 JSON",
+                    version="mage-test-v1",
+                    timeout_seconds=10,
+                )
+                analysis = analyzer.analyze(video, Segment(0, 2_000))
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual("白色兰花在画面中轻微晃动", analysis.summary)
+        self.assertEqual(
+            [8, 4],
+            [
+                sum(
+                    item["type"] == "image_url"
+                    for item in request["messages"][0]["content"]
+                )
+                for request in requests
+            ],
+        )
+
+    def test_quality_check_rejects_an_entirely_unknown_analysis(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no meaningful visual description"):
+            _validate_analysis_quality(
+                {
+                    "summary": "无法判断",
+                    "who": [{"role": "未知", "confidence": 0.0}],
+                    "where": {"environment": "不确定"},
+                    "events": [],
+                }
+            )
+
+    def test_quality_check_accepts_partial_unknown_fields(self) -> None:
+        _validate_analysis_quality(
+            {
+                "summary": "白色兰花在画面中轻微晃动",
+                "who": [],
+                "where": {"environment": "花卉特写", "venue": "无法判断"},
+                "when": {"period": "无法判断"},
+                "events": [],
+            }
         )
 
     def test_extracts_the_requested_number_of_uniform_frames(self) -> None:
