@@ -13,7 +13,8 @@
     .eyebrow { color:var(--rose); font-size:12px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; }
     h1 { margin:8px 0 6px; font-family:Georgia,"Songti SC",serif; font-size:clamp(36px,6vw,66px); font-weight:500; letter-spacing:-.04em; }
     .sub { color:var(--muted); max-width:640px; line-height:1.7; }
-    .status { color:var(--muted); font-size:13px; white-space:nowrap; }
+    .status { display:grid; justify-items:end; gap:8px; color:var(--muted); font-size:13px; white-space:nowrap; }
+    .status a { color:var(--rose-dark); text-underline-offset:3px; }
     .searchbar { display:flex; gap:10px; padding:10px; background:rgba(255,253,249,.86); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 45px rgba(78,57,45,.08); backdrop-filter:blur(14px); }
     input { flex:1; min-width:0; border:0; outline:0; background:transparent; padding:12px 14px; font-size:17px; color:var(--ink); }
     button { border:0; border-radius:12px; padding:0 22px; background:var(--rose); color:#fff; font-weight:650; cursor:pointer; transition:.2s ease; }
@@ -63,7 +64,7 @@
 <main>
   <header>
     <div><div class="eyebrow">Local video archive</div><h1>镜头搜索</h1><div class="sub">用自然语言搜索本机视频素材，直接定位到每个视频中的准确镜头范围。</div></div>
-    <div class="status" id="status">正在读取索引…</div>
+    <div class="status"><span id="status">正在读取索引…</span><a href="/failures">查看失败镜头</a></div>
   </header>
   <form class="searchbar" id="form"><input id="query" autofocus placeholder="例如：傍晚草坪上，新人拥抱，镜头缓慢推进"><button>自然语言搜索</button></form>
   <div class="hints"><span class="hint">新娘整理头纱</span><span class="hint">when:夜晚 宾客跳舞</span><span class="hint">environment:户外草坪 新人拥抱</span><span class="hint">action:挥手</span></div>
@@ -216,7 +217,7 @@ function renderShotDetail(detail){
   analysisDetails.appendChild(detailGrid);
 }
 
-async function status(){const data=await fetch('/api/status').then(response=>response.json());document.querySelector('#status').textContent=`${data.videos.total} 个视频 · ${data.ready_shots}/${data.shots} 个镜头可搜索`}
+async function status(){const data=await fetch('/api/status').then(response=>response.json());const failed=data.failed_shots?` · ${data.failed_shots} 个失败`:'';document.querySelector('#status').textContent=`${data.videos.total} 个视频 · ${data.ready_shots}/${data.shots} 个镜头可搜索${failed}`}
 const tokenQuery=item=>item.shot_token?`?token=${encodeURIComponent(item.shot_token)}`:'';
 function play(item){if(item.expired)return;video.src=`/media/${item.shot_id}${tokenQuery(item)}`;video.dataset.start=item.start_seconds;video.dataset.end=item.end_seconds;playerTitle.textContent=`${item.summary} · ${seconds(item.start_seconds)}–${seconds(item.end_seconds)}`;if(!dialog.open)dialog.showModal();dialog.scrollTop=0;loadShotDetail(item.shot_id,item.shot_token);video.addEventListener('loadedmetadata',()=>{video.currentTime=Number(video.dataset.start);video.play().catch(()=>{})},{once:true})}
 function render(data){input.value=data.query||'';const expired=data.expired_count?` · ${data.expired_count} 个已过期`:'';meta.textContent=`找到 ${data.count} 个镜头${expired}`;grid.innerHTML='';if(!data.count){grid.innerHTML='<div class="empty">没有找到符合条件的镜头，试试更宽泛的描述。</div>';return}data.results.forEach((item,index)=>{const card=document.createElement('article');const tags=[item.when_period,item.environment,item.venue].filter(Boolean);card.dataset.shotId=item.shot_id;card.innerHTML=item.expired?`<div class="empty">${index+1}. 此镜头已过期，请重新搜索。</div>`:`<div class="thumb"><img src="/thumbnail/${item.shot_id}${tokenQuery(item)}" alt="" onerror="this.style.display='none'"><span class="duration">${seconds(item.start_seconds)}–${seconds(item.end_seconds)}</span></div><div class="body"><h2></h2><div class="tags"></div><div class="path"></div></div>`;if(item.expired){grid.appendChild(card);return}card.querySelector('h2').textContent=`${index+1}. ${item.summary}`;card.querySelector('.path').textContent=item.video_path;tags.forEach(tag=>{const el=document.createElement('span');el.className='tag';el.textContent=tag;card.querySelector('.tags').appendChild(el)});card.addEventListener('click',()=>play(item));grid.appendChild(card)});const requestedShot=new URLSearchParams(location.search).get('shot');if(requestedShot){const item=data.results.find(result=>!result.expired&&String(result.shot_id)===requestedShot);if(item)play(item)}}

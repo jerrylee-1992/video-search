@@ -17,6 +17,22 @@ class TransientAnalyzerError(RuntimeError):
     """The analyzer is temporarily unavailable and the job may be resumed."""
 
 
+class InvalidAnalyzerOutputError(ValueError):
+    """The analyzer replied, but its result cannot be stored as a valid analysis."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        attempts: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.attempts = list(attempts or [])
+
+    def as_record(self) -> dict[str, Any]:
+        return {"error": str(self), "attempts": self.attempts}
+
+
 def _optional_text(value: Any, field: str) -> str | None:
     if value is None:
         return None

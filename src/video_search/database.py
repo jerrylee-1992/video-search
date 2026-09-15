@@ -431,6 +431,7 @@ class Database:
         analysis_json: dict[str, Any],
         analysis_version: str,
         status: str = "ready",
+        error: str | None = None,
     ) -> int:
         with self.connect() as connection:
             cursor = connection.execute(
@@ -438,9 +439,8 @@ class Database:
                 INSERT INTO shots(
                     video_id, shot_index, start_ms, end_ms, summary, search_text,
                     when_period, lighting, environment, venue,
-                    analysis_json, analysis_version, status
-                    , identity_token
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    analysis_json, analysis_version, status, error, identity_token
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     video_id,
@@ -456,6 +456,7 @@ class Database:
                     json.dumps(analysis_json, ensure_ascii=False),
                     analysis_version,
                     status,
+                    error,
                     uuid.uuid4().hex,
                 ),
             )
@@ -765,6 +766,31 @@ class Database:
                 video_id = int(row["id"])
                 connection.execute("DELETE FROM shots WHERE video_id = ?", (video_id,))
             for item in shots:
+                if item.get("status") == "failed":
+                    cursor = connection.execute(
+                        """INSERT INTO shots(
+                               video_id, shot_index, start_ms, end_ms, summary,
+                               search_text, analysis_json, analysis_version, status,
+                               error, identity_token
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?)""",
+                        (
+                            video_id, item["shot_index"], item["segment"].start_ms,
+                            item["segment"].end_ms, item["summary"],
+                            item.get("search_text", ""),
+                            json.dumps(item["failure"], ensure_ascii=False),
+                            item["analysis_version"], item["error"], uuid.uuid4().hex,
+                        ),
+                    )
+                    shot_id = int(cursor.lastrowid)
+                    frame = item.get("frame")
+                    if frame is not None:
+                        connection.execute(
+                            """INSERT INTO shot_frames(
+                                   shot_id, timestamp_ms, path, kind, quality_score
+                               ) VALUES (?, ?, ?, 'thumbnail', NULL)""",
+                            (shot_id, frame["timestamp_ms"], frame["path"]),
+                        )
+                    continue
                 analysis: Any = item["analysis"]
                 cursor = connection.execute(
                     """INSERT INTO shots(
@@ -816,6 +842,11 @@ class Database:
                             "INSERT INTO frame_visual_vectors(frame_id, embedding_version, dimensions, vector) VALUES (?, ?, ?, ?)",
                             (int(cursor.lastrowid), version, len(values), self._pack_vector(values)),
                         )
+            final_status = (
+                "ready_with_failures"
+                if any(item.get("status") == "failed" for item in shots)
+                else "ready"
+            )
             connection.execute(
                 """UPDATE videos SET fingerprint = ?, duration_ms = ?, segmentation_version = ?,
                    source_root = COALESCE(?, source_root),
@@ -825,8 +856,11 @@ class Database:
                    media_type = COALESCE(?, media_type),
                    edit_version = COALESCE(?, edit_version),
                    metadata_search_text = COALESCE(?, metadata_search_text),
-                   status = 'ready', error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
-                (fingerprint, duration_ms, segmentation_version, *metadata, video_id),
+                   status = ?, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+                (
+                    fingerprint, duration_ms, segmentation_version, *metadata,
+                    final_status, video_id,
+                ),
             )
         return video_id
 
@@ -851,6 +885,28 @@ class Database:
                 "SELECT * FROM shots WHERE video_id = ? ORDER BY shot_index", (video_id,)
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def list_failed_shots(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """SELECT shots.*, videos.path AS video_path,
+                          (SELECT shot_frames.path FROM shot_frames
+                           WHERE shot_frames.shot_id = shots.id
+                             AND shot_frames.kind = 'thumbnail'
+                           ORDER BY shot_frames.timestamp_ms LIMIT 1) AS thumbnail_path
+                   FROM shots JOIN videos ON videos.id = shots.video_id
+                   WHERE shots.status = 'failed'
+                   ORDER BY shots.updated_at DESC, videos.path, shots.shot_index"""
+            ).fetchall()
+        failures = []
+        for row in rows:
+            failure = dict(row)
+            failure["analysis"] = json.loads(failure.pop("analysis_json"))
+            failure["start_seconds"] = int(failure["start_ms"]) / 1_000
+            failure["end_seconds"] = int(failure["end_ms"]) / 1_000
+            failure["thumbnail_available"] = bool(failure.pop("thumbnail_path"))
+            failures.append(failure)
+        return failures
 
     def list_search_shots(
         self,
@@ -988,13 +1044,15 @@ class Database:
             if kind == "media":
                 row = connection.execute(
                     f"""SELECT videos.path FROM shots JOIN videos ON videos.id = shots.video_id
-                        WHERE shots.id = ? AND shots.status = 'ready' {token_clause}""", values
+                        WHERE shots.id = ? AND shots.status IN ('ready', 'failed')
+                          {token_clause}""", values
                 ).fetchone()
             else:
                 row = connection.execute(
                     f"""SELECT shot_frames.path FROM shots
                         JOIN shot_frames ON shot_frames.shot_id = shots.id
-                        WHERE shots.id = ? AND shots.status = 'ready' {token_clause}
+                        WHERE shots.id = ? AND shots.status IN ('ready', 'failed')
+                          {token_clause}
                           AND shot_frames.kind = 'thumbnail'
                         ORDER BY shot_frames.timestamp_ms LIMIT 1""", values
                 ).fetchone()
@@ -1080,6 +1138,14 @@ class Database:
             ready_shot_count = connection.execute(
                 "SELECT COUNT(*) FROM shots WHERE status = 'ready'"
             ).fetchone()[0]
+            failed_shot_count = connection.execute(
+                "SELECT COUNT(*) FROM shots WHERE status = 'failed'"
+            ).fetchone()[0]
         videos = {"total": sum(int(row["count"]) for row in video_rows)}
         videos.update({str(row["status"]): int(row["count"]) for row in video_rows})
-        return {"videos": videos, "shots": int(shot_count), "ready_shots": int(ready_shot_count)}
+        return {
+            "videos": videos,
+            "shots": int(shot_count),
+            "ready_shots": int(ready_shot_count),
+            "failed_shots": int(failed_shot_count),
+        }

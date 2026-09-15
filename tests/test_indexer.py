@@ -2,7 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from video_search.analysis import ShotAnalysis, TransientAnalyzerError
+from video_search.analysis import (
+    InvalidAnalyzerOutputError,
+    ShotAnalysis,
+    TransientAnalyzerError,
+)
 from video_search.database import Database
 from video_search.indexer import Indexer
 from video_search.media import Segment, VideoMetadata
@@ -54,6 +58,32 @@ class FailingAnalyzer(RecordingAnalyzer):
         if segment.start_ms == self.fail_at_start_ms:
             self.calls.append(segment)
             raise ValueError("invalid model JSON")
+        return super().analyze(path, segment)
+
+
+class InvalidOutputAnalyzer(RecordingAnalyzer):
+    def __init__(self, fail_at_start_ms: int) -> None:
+        super().__init__()
+        self.fail_at_start_ms = fail_at_start_ms
+
+    def analyze(self, path: Path, segment: Segment) -> ShotAnalysis:
+        if segment.start_ms == self.fail_at_start_ms:
+            self.calls.append(segment)
+            raise InvalidAnalyzerOutputError(
+                "primary and compact responses were invalid",
+                attempts=[
+                    {
+                        "mode": "primary",
+                        "error": "invalid JSON",
+                        "raw_response": "not-json",
+                    },
+                    {
+                        "mode": "compact",
+                        "error": "placeholder",
+                        "raw_response": '{"summary":"placeholder"}',
+                    },
+                ],
+            )
         return super().analyze(path, segment)
 
 
@@ -131,6 +161,76 @@ class TemporarilyUnavailableAnalyzer(RecordingAnalyzer):
 
 
 class IndexerTest(unittest.TestCase):
+    def test_invalid_shot_is_recorded_and_later_shots_continue(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / "wedding.mp4"
+            video.write_bytes(b"video")
+            database = Database(root / "index.sqlite3")
+            first_analyzer = InvalidOutputAnalyzer(0)
+
+            first = Indexer(
+                database=database,
+                segmenter=FixedSegmenter(),
+                analyzer=first_analyzer,
+                probe=lambda _: VideoMetadata(10_000, 1, 1),
+                thumbnailer=WritingThumbnailer(),
+                cache_dir=root / "cache",
+            ).index_folder(root)
+
+            shots = database.list_shots()
+            failed = database.get_shot(int(shots[0]["id"]))
+            self.assertEqual(1, first["indexed"])
+            self.assertEqual(0, first["failed"])
+            self.assertEqual(1, first["shot_failures"])
+            self.assertEqual(["failed", "ready"], [shot["status"] for shot in shots])
+            self.assertEqual("ready_with_failures", database.get_video_by_path(str(video))["status"])
+            self.assertEqual("not-json", failed["analysis"]["failure"]["attempts"][0]["raw_response"])
+            self.assertEqual(1, len(database.get_shot_details(int(shots[0]["id"]))["frames"]))
+            self.assertEqual([Segment(0, 4_000), Segment(4_000, 10_000)], first_analyzer.calls)
+
+            resumed_analyzer = RecordingAnalyzer()
+            second = Indexer(
+                database=database,
+                segmenter=FixedSegmenter(),
+                analyzer=resumed_analyzer,
+                probe=lambda _: VideoMetadata(10_000, 1, 1),
+            ).index_folder(root)
+
+            self.assertEqual([Segment(0, 4_000)], resumed_analyzer.calls)
+            self.assertEqual(0, second["shot_failures"])
+            self.assertEqual(["ready", "ready"], [shot["status"] for shot in database.list_shots()])
+            self.assertEqual("ready", database.get_video_by_path(str(video))["status"])
+
+    def test_version_rebuild_can_publish_ready_and_failed_shots_together(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            video = root / "wedding.mp4"
+            video.write_bytes(b"video")
+            database = Database(root / "index.sqlite3")
+            Indexer(
+                database=database, segmenter=FixedSegmenter(),
+                analyzer=RecordingAnalyzer(),
+                probe=lambda _: VideoMetadata(10_000, 1, 1),
+            ).index_folder(root)
+            analyzer = InvalidOutputAnalyzer(4_000)
+            analyzer.version = "analysis-v2"
+
+            result = Indexer(
+                database=database, segmenter=FixedSegmenter(), analyzer=analyzer,
+                probe=lambda _: VideoMetadata(10_000, 1, 1),
+                thumbnailer=WritingThumbnailer(), cache_dir=root / "cache",
+            ).index_folder(root)
+
+            shots = database.list_shots()
+            self.assertEqual(0, result["failed"])
+            self.assertEqual(1, result["shot_failures"])
+            self.assertEqual(["ready", "failed"], [shot["status"] for shot in shots])
+            self.assertTrue(all(shot["analysis_version"] == "analysis-v2" for shot in shots))
+            self.assertEqual(
+                "ready_with_failures", database.get_video_by_path(str(video))["status"]
+            )
+
     def test_transient_analyzer_failure_pauses_before_later_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -476,11 +576,11 @@ class IndexerTest(unittest.TestCase):
             second = indexer.index_folder(root)
 
             self.assertEqual(
-                {"discovered": 1, "indexed": 1, "skipped": 0, "failed": 0, "shots": 2},
+                {"discovered": 1, "indexed": 1, "skipped": 0, "failed": 0, "shots": 2, "shot_failures": 0},
                 first,
             )
             self.assertEqual(
-                {"discovered": 1, "indexed": 0, "skipped": 1, "failed": 0, "shots": 0},
+                {"discovered": 1, "indexed": 0, "skipped": 1, "failed": 0, "shots": 0, "shot_failures": 0},
                 second,
             )
             self.assertEqual(2, len(analyzer.calls))

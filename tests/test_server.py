@@ -14,6 +14,62 @@ from video_search.server import create_server
 
 
 class ServerTest(unittest.TestCase):
+    def test_failure_page_lists_raw_results_and_serves_failed_media(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            media = root / "failed.mp4"
+            media.write_bytes(b"0123456789")
+            thumbnail = root / "failed.jpg"
+            thumbnail.write_bytes(b"jpeg")
+            database = Database(root / "index.sqlite3")
+            database.initialize()
+            video_id = database.upsert_video(
+                path=str(media), fingerprint="10:20", duration_ms=10_000,
+                segmentation_version="test-v1",
+            )
+            shot_id = database.insert_shot(
+                video_id=video_id, shot_index=3, start_ms=2_000, end_ms=5_000,
+                summary="模型分析失败", search_text="", when_period=None,
+                lighting=None, environment=None, venue=None,
+                analysis_json={"failure": {"error": "invalid", "attempts": [{
+                    "mode": "compact", "error": "invalid JSON",
+                    "raw_response": "raw model response",
+                }]}},
+                analysis_version="test-v1", status="failed", error="invalid",
+            )
+            database.add_shot_frame(
+                shot_id=shot_id, timestamp_ms=3_500, path=str(thumbnail),
+                kind="thumbnail", quality_score=None,
+            )
+            server = create_server(("127.0.0.1", 0), database)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/failures") as response:
+                    payload = json.load(response)
+                with urllib.request.urlopen(f"{base}/failures") as response:
+                    page = response.read().decode("utf-8")
+                request = urllib.request.Request(
+                    f"{base}/media/{shot_id}", headers={"Range": "bytes=2-5"}
+                )
+                with urllib.request.urlopen(request) as response:
+                    media_bytes = response.read()
+                with urllib.request.urlopen(f"{base}/thumbnail/{shot_id}") as response:
+                    thumbnail_bytes = response.read()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(1, payload["count"])
+            self.assertEqual("raw model response", payload["failures"][0]["analysis"]["failure"]["attempts"][0]["raw_response"])
+            self.assertEqual(2.0, payload["failures"][0]["start_seconds"])
+            self.assertTrue(payload["failures"][0]["thumbnail_available"])
+            self.assertIn("失败镜头", page)
+            self.assertEqual(b"2345", media_bytes)
+            self.assertEqual(b"jpeg", thumbnail_bytes)
+
     def test_search_failure_returns_json_500_and_next_request_can_recover(self) -> None:
         class FailsOnceSearcher:
             def __init__(self) -> None:

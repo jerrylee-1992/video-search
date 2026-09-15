@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Protocol
 import uuid
 
-from video_search.analysis import ShotAnalysis, TransientAnalyzerError
+from video_search.analysis import (
+    InvalidAnalyzerOutputError,
+    ShotAnalysis,
+    TransientAnalyzerError,
+)
 from video_search.database import Database
 from video_search.media import (
     FFmpegSceneSegmenter,
@@ -97,6 +101,7 @@ class Indexer:
             "skipped": 0,
             "failed": 0,
             "shots": 0,
+            "shot_failures": 0,
         }
         completed_files = 0
         total_shots = 0
@@ -121,6 +126,7 @@ class Indexer:
             if self._pause_if_requested(job_id, progress, result):
                 return result
             video_id: int | None = None
+            video_shot_failures = 0
             try:
                 self._update_job(
                     job_id, progress, current_path=str(path), current_stage="probe",
@@ -194,12 +200,14 @@ class Indexer:
                                 job_id, progress, current_stage="analyze",
                                 current_shot_index=shot_index,
                             )
-                            staged.append(
-                                self._stage_shot(
-                                    path, shot_index, segment, staged_files,
-                                    metadata_search_text=metadata_search_text,
-                                )
+                            staged_item = self._stage_shot(
+                                path, shot_index, segment, staged_files,
+                                metadata_search_text=metadata_search_text,
                             )
+                            staged.append(staged_item)
+                            if staged_item.get("status") == "failed":
+                                video_shot_failures += 1
+                                result["shot_failures"] += 1
                             completed_shots += 1
                             self._update_job(
                                 job_id, progress, completed_shots=completed_shots,
@@ -234,7 +242,9 @@ class Indexer:
                 can_resume = (
                     existing is not None
                     and same_source_and_segments
-                    and existing["status"] in {"failed", "processing"}
+                    and existing["status"] in {
+                        "failed", "processing", "ready_with_failures"
+                    }
                     and self.database.video_has_analysis_version(
                         existing["id"], self.analyzer.version
                     )
@@ -277,9 +287,26 @@ class Indexer:
                                 job_id, progress, completed_shots=completed_shots,
                             )
                             continue
-                    analysis, analyzed_frame = self._analyze_with_optional_thumbnail(
-                        path, segment
-                    )
+                    try:
+                        analysis, analyzed_frame = self._analyze_with_optional_thumbnail(
+                            path, segment
+                        )
+                    except InvalidAnalyzerOutputError as error:
+                        self._insert_failed_shot(
+                            video_id=video_id,
+                            path=path,
+                            shot_index=shot_index,
+                            segment=segment,
+                            error=error,
+                            metadata_search_text=metadata_search_text,
+                        )
+                        video_shot_failures += 1
+                        result["shot_failures"] += 1
+                        completed_shots += 1
+                        self._update_job(
+                            job_id, progress, completed_shots=completed_shots,
+                        )
+                        continue
                     enriched_search_text = self._enriched_search_text(
                         analysis.search_text, metadata_search_text
                     )
@@ -331,7 +358,10 @@ class Indexer:
                     self._update_job(
                         job_id, progress, completed_shots=completed_shots,
                     )
-                self.database.set_video_status(video_id, "ready")
+                self.database.set_video_status(
+                    video_id,
+                    "ready_with_failures" if video_shot_failures else "ready",
+                )
                 result["indexed"] += 1
                 result["shots"] += len(segments)
                 completed_files += 1
@@ -439,7 +469,25 @@ class Indexer:
         *,
         metadata_search_text: str = "",
     ) -> dict[str, object]:
-        analysis, frame = self._analyze_with_optional_thumbnail(path, segment)
+        try:
+            analysis, frame = self._analyze_with_optional_thumbnail(path, segment)
+        except InvalidAnalyzerOutputError as error:
+            failure, frame = self._failed_shot_payload(path, segment, error)
+            item: dict[str, object] = {
+                "shot_index": shot_index,
+                "segment": segment,
+                "analysis_version": self.analyzer.version,
+                "status": "failed",
+                "summary": "模型分析失败",
+                "search_text": metadata_search_text,
+                "error": str(error),
+                "failure": failure,
+            }
+            if frame is not None:
+                frame_path = Path(str(frame["path"]))
+                staged_files.append(frame_path)
+                item["frame"] = frame
+            return item
         enriched_search_text = self._enriched_search_text(
             analysis.search_text, metadata_search_text
         )
@@ -463,6 +511,61 @@ class Indexer:
                 )
             item["frame"] = frame
         return item
+
+    def _insert_failed_shot(
+        self,
+        *,
+        video_id: int,
+        path: Path,
+        shot_index: int,
+        segment: Segment,
+        error: InvalidAnalyzerOutputError,
+        metadata_search_text: str,
+    ) -> int:
+        failure, frame = self._failed_shot_payload(path, segment, error)
+        shot_id = self.database.insert_shot(
+            video_id=video_id,
+            shot_index=shot_index,
+            start_ms=segment.start_ms,
+            end_ms=segment.end_ms,
+            summary="模型分析失败",
+            search_text=metadata_search_text,
+            when_period=None,
+            lighting=None,
+            environment=None,
+            venue=None,
+            analysis_json=failure,
+            analysis_version=self.analyzer.version,
+            status="failed",
+            error=str(error),
+        )
+        if frame is not None:
+            self.database.add_shot_frame(
+                shot_id=shot_id,
+                timestamp_ms=int(frame["timestamp_ms"]),
+                path=str(frame["path"]),
+                kind="thumbnail",
+                quality_score=None,
+            )
+        return shot_id
+
+    def _failed_shot_payload(
+        self,
+        path: Path,
+        segment: Segment,
+        error: InvalidAnalyzerOutputError,
+    ) -> tuple[dict[str, object], dict[str, object] | None]:
+        failure: dict[str, object] = {"failure": error.as_record()}
+        if self.thumbnailer is None:
+            return failure, None
+        frame_path = self._new_thumbnail_path()
+        try:
+            timestamp_ms = self.thumbnailer.extract(path, segment, frame_path)
+        except Exception as thumbnail_error:
+            frame_path.unlink(missing_ok=True)
+            failure["thumbnail_error"] = str(thumbnail_error)
+            return failure, None
+        return failure, {"timestamp_ms": timestamp_ms, "path": str(frame_path)}
 
     @staticmethod
     def _enriched_search_text(analysis_text: str, metadata_text: str) -> str:

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from video_search.analysis import InvalidAnalyzerOutputError
 from video_search.mage_client import (
     MageServiceAnalyzer,
     _validate_analysis_quality,
@@ -22,6 +23,40 @@ from video_search.media import Segment
 
 
 class MageClientTest(unittest.TestCase):
+    def test_records_both_raw_responses_when_compact_retry_is_invalid(self) -> None:
+        analyzer = MageServiceAnalyzer(
+            base_url="http://127.0.0.1/v1",
+            model="microsoft/Mage-VL",
+            api_key="EMPTY",
+            prompt="只输出 JSON",
+            version="mage-test-v1",
+        )
+        failures = [
+            InvalidAnalyzerOutputError(
+                "invalid JSON",
+                attempts=[{"error": "invalid JSON", "raw_response": "primary raw"}],
+            ),
+            InvalidAnalyzerOutputError(
+                "placeholder",
+                attempts=[{"error": "placeholder", "raw_response": "compact raw"}],
+            ),
+        ]
+
+        with patch(
+            "video_search.mage_client.extract_uniform_frames",
+            side_effect=[[Path("primary.jpg")], [Path("compact.jpg")]],
+        ), patch.object(analyzer, "_analyze_frames", side_effect=failures):
+            with self.assertRaises(InvalidAnalyzerOutputError) as raised:
+                analyzer.analyze(Path("clip.mp4"), Segment(0, 1_000))
+
+        self.assertEqual(
+            [("primary", "primary raw"), ("compact", "compact raw")],
+            [
+                (attempt["mode"], attempt["raw_response"])
+                for attempt in raised.exception.attempts
+            ],
+        )
+
     def test_closes_transient_http_error_before_retrying(self) -> None:
         error_body = io.BytesIO(b"temporarily unavailable")
         transient = HTTPError(
@@ -241,7 +276,11 @@ class MageClientTest(unittest.TestCase):
                 content = request["messages"][0]["content"]
                 image_count = sum(item["type"] == "image_url" for item in content)
                 prompt = content[-1]["text"]
-                if image_count == 4 and "内容质量校验" in prompt:
+                if (
+                    image_count == 4
+                    and "内容质量校验" in prompt
+                    and "数组每一项必须是 JSON 对象" in prompt
+                ):
                     answer_payload = {
                         "summary": "白色兰花在画面中轻微晃动",
                         "who": [],
@@ -341,6 +380,8 @@ class MageClientTest(unittest.TestCase):
                 thread.join(timeout=2)
 
         self.assertEqual("白色兰花在画面中轻微晃动", analysis.summary)
+        compact_prompt = requests[1]["messages"][0]["content"][-1]["text"]
+        self.assertIn("数组每一项必须是 JSON 对象", compact_prompt)
         self.assertEqual(
             [8, 4],
             [

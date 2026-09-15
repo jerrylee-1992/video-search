@@ -26,13 +26,20 @@ def create_server(
             if parsed.path == "/" or re.fullmatch(
                 r"/search/session/[a-f0-9]{32}", parsed.path
             ):
-                self._serve_page()
+                self._serve_page("index.html")
+                return
+            if parsed.path == "/failures":
+                self._serve_page("failures.html")
                 return
             if parsed.path == "/request-gate.js":
                 self._serve_static("request-gate.js", "text/javascript; charset=utf-8")
                 return
             if parsed.path == "/api/status":
                 self._send_json(database.status())
+                return
+            if parsed.path == "/api/failures":
+                failures = database.list_failed_shots()
+                self._send_json({"count": len(failures), "failures": failures})
                 return
             if parsed.path == "/api/search":
                 parameters = parse_qs(parsed.query)
@@ -88,8 +95,8 @@ def create_server(
                 return
             self.send_error(HTTPStatus.NOT_FOUND)
 
-        def _serve_page(self) -> None:
-            page = (Path(__file__).parent / "web" / "index.html").read_bytes()
+        def _serve_page(self, name: str) -> None:
+            page = (Path(__file__).parent / "web" / name).read_bytes()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(page)))

@@ -11,6 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from video_search.analysis import (
+    InvalidAnalyzerOutputError,
     ShotAnalysis,
     TransientAnalyzerError,
     adaptive_frame_count,
@@ -22,6 +23,7 @@ COMPACT_RETRY_INSTRUCTION = """
 
 上一次输出未通过结构或内容质量校验。请将多帧合并为一个连续镜头，不要逐帧重复描述。
 这次必须输出紧凑 JSON：events 最多 3 项，objects 最多 8 项，总长度不超过 1800 个中文字符。
+who、events、objects 必须是 JSON 数组，数组每一项必须是 JSON 对象，禁止使用字符串、嵌套数组或 null。
 如果画面没有人物，who 可以为空数组，但仍要描述环境变化和摄影机运动。
 """
 
@@ -186,9 +188,15 @@ def analyze_clip(
         raise ValueError("Mage-VL service returned an unexpected response") from error
     if not isinstance(answer, str):
         raise ValueError("Mage-VL response content must be text")
-    payload = _analysis_payload(answer)
-    analysis = ShotAnalysis.from_dict(payload)
-    _validate_analysis_quality(payload)
+    try:
+        payload = _analysis_payload(answer)
+        analysis = ShotAnalysis.from_dict(payload)
+        _validate_analysis_quality(payload)
+    except ValueError as error:
+        raise InvalidAnalyzerOutputError(
+            str(error),
+            attempts=[{"error": str(error), "raw_response": answer}],
+        ) from error
     return analysis
 
 
@@ -251,7 +259,7 @@ class MageServiceAnalyzer:
             )
             try:
                 analysis = self._analyze_frames(frames, self.prompt)
-            except ValueError:
+            except InvalidAnalyzerOutputError as primary_error:
                 compact_frames = extract_uniform_frames(
                     path,
                     4,
@@ -260,9 +268,23 @@ class MageServiceAnalyzer:
                     max_long_edge=self.max_long_edge,
                     timeout_seconds=self.ffmpeg_timeout_seconds,
                 )
-                analysis = self._analyze_frames(
-                    compact_frames, self.prompt + COMPACT_RETRY_INSTRUCTION
-                )
+                try:
+                    analysis = self._analyze_frames(
+                        compact_frames, self.prompt + COMPACT_RETRY_INSTRUCTION
+                    )
+                except InvalidAnalyzerOutputError as compact_error:
+                    attempts = [
+                        {**attempt, "mode": "primary"}
+                        for attempt in primary_error.attempts
+                    ]
+                    attempts.extend(
+                        {**attempt, "mode": "compact"}
+                        for attempt in compact_error.attempts
+                    )
+                    raise InvalidAnalyzerOutputError(
+                        "Mage-VL primary and compact responses were invalid",
+                        attempts=attempts,
+                    ) from compact_error
             timestamp_ms: int | None = None
             if thumbnail_destination is not None:
                 representative_index = len(frames) // 2
