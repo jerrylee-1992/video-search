@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -19,13 +20,20 @@ from video_search.analysis import (
 from video_search.media import Segment, probe_video
 
 
-COMPACT_RETRY_INSTRUCTION = """
+COMPACT_RETRY_PROMPT = """你会收到视频素材中一个镜头的代表帧。素材类型不固定，请只根据画面生成可检索的视觉分析，不要预设场景、人物身份或事件类别。
 
-上一次输出未通过结构或内容质量校验。请将多帧合并为一个连续镜头，不要逐帧重复描述。
-这次必须输出紧凑 JSON：events 最多 3 项，objects 最多 8 项，总长度不超过 1800 个中文字符。
-who、events、objects 必须是 JSON 数组，数组每一项必须是 JSON 对象，禁止使用字符串、嵌套数组或 null。
-如果画面没有人物，who 可以为空数组，但仍要描述环境变化和摄影机运动。
-"""
+只输出一个合法 JSON 对象，不要输出 Markdown、解释或提示词内容。所有文本值必须是对当前画面的具体描述；禁止复制字段说明，禁止使用示例句或占位文字。
+
+JSON 必须包含这些键和类型：
+- summary: 字符串，用一到两句描述主体、场景和可见动作；静态镜头可明确写主体处于静止状态。
+- who: 对象数组；每项包含 role 字符串、count 非负整数、appearance 字符串或 null、confidence 0 到 1 的数字。
+- where: 对象，包含 environment、venue、background，值为字符串或 null。
+- when: 对象，包含 period、lighting，值为字符串或 null。
+- events: 对象数组，最多 3 项；每项包含从 0 连续递增的 sequence、subject_role、action、object、target、description、confidence。没有明确动作时可为空数组。
+- objects: 对象数组，最多 8 项；每项包含 name 和 confidence。
+- camera: 对象，包含 movement、shot_size、viewpoint，值为字符串或 null。
+
+宁可返回空数组或 null，也不要猜测身份和不可见内容。最终输出总长度不超过 1800 个中文字符。"""
 
 DEFAULT_MAGE_MAX_LONG_EDGE = 896
 ANALYSIS_SUMMARY_PLACEHOLDERS = (
@@ -34,6 +42,10 @@ ANALYSIS_SUMMARY_PLACEHOLDERS = (
 ANALYSIS_UNKNOWN_VALUES = frozenset(
     {"无法判断", "未知", "不确定", "unknown", "n/a", "na"}
 )
+ANALYSIS_COLLECTION_LIMITS = {
+    "events": 3,
+    "objects": 8,
+}
 
 
 def extract_uniform_frames(
@@ -127,6 +139,41 @@ def _analysis_text_values(value: object) -> list[str]:
     return []
 
 
+def _analysis_item_confidence(value: object) -> float:
+    if not isinstance(value, dict):
+        return -1.0
+    confidence = value.get("confidence")
+    if (
+        isinstance(confidence, (int, float))
+        and not isinstance(confidence, bool)
+        and math.isfinite(confidence)
+        and 0 <= confidence <= 1
+    ):
+        return float(confidence)
+    return -1.0
+
+
+def _trim_analysis_collections(payload: dict[str, object]) -> dict[str, object]:
+    trimmed = dict(payload)
+    for field, limit in ANALYSIS_COLLECTION_LIMITS.items():
+        value = payload.get(field)
+        if not isinstance(value, list) or len(value) <= limit:
+            continue
+        ranked = sorted(
+            enumerate(value),
+            key=lambda indexed: _analysis_item_confidence(indexed[1]),
+            reverse=True,
+        )[:limit]
+        selected = [value[index] for index, _ in sorted(ranked)]
+        if field == "events":
+            selected = [
+                {**item, "sequence": sequence} if isinstance(item, dict) else item
+                for sequence, item in enumerate(selected)
+            ]
+        trimmed[field] = selected
+    return trimmed
+
+
 def _validate_analysis_quality(payload: dict[str, object]) -> None:
     summary = payload.get("summary")
     if isinstance(summary, str) and any(
@@ -189,7 +236,7 @@ def analyze_clip(
     if not isinstance(answer, str):
         raise ValueError("Mage-VL response content must be text")
     try:
-        payload = _analysis_payload(answer)
+        payload = _trim_analysis_collections(_analysis_payload(answer))
         analysis = ShotAnalysis.from_dict(payload)
         _validate_analysis_quality(payload)
     except ValueError as error:
@@ -260,17 +307,10 @@ class MageServiceAnalyzer:
             try:
                 analysis = self._analyze_frames(frames, self.prompt)
             except InvalidAnalyzerOutputError as primary_error:
-                compact_frames = extract_uniform_frames(
-                    path,
-                    4,
-                    root / "compact-retry",
-                    segment=segment,
-                    max_long_edge=self.max_long_edge,
-                    timeout_seconds=self.ffmpeg_timeout_seconds,
-                )
+                compact_frames = [frames[len(frames) // 2]]
                 try:
                     analysis = self._analyze_frames(
-                        compact_frames, self.prompt + COMPACT_RETRY_INSTRUCTION
+                        compact_frames, COMPACT_RETRY_PROMPT
                     )
                 except InvalidAnalyzerOutputError as compact_error:
                     attempts = [

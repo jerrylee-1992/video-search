@@ -127,6 +127,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS search_sessions (
                     id TEXT PRIMARY KEY,
                     query TEXT NOT NULL,
+                    path TEXT,
                     results_json TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -184,6 +185,12 @@ class Database:
                 connection.execute(
                     "UPDATE index_jobs SET run_started_at = created_at WHERE run_started_at IS NULL"
                 )
+            session_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(search_sessions)")
+            }
+            if "path" not in session_columns:
+                connection.execute("ALTER TABLE search_sessions ADD COLUMN path TEXT")
 
     @contextmanager
     def index_lock(self) -> Iterator[None]:
@@ -913,18 +920,36 @@ class Database:
         *,
         text_embedding_version: str | None = None,
         visual_embedding_version: str | None = None,
+        path_scope: str | None = None,
     ) -> list[dict[str, Any]]:
         """Load every ready candidate and its scoring data from one snapshot."""
         records: list[dict[str, Any]] = []
         with self.connect() as connection:
             connection.execute("BEGIN")
+            conditions = ["shots.status = 'ready'"]
+            values: list[object] = []
+            if path_scope is not None:
+                normalized = path_scope.rstrip("/") or "/"
+                escaped = (
+                    normalized.replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+                )
+                descendant_pattern = (
+                    f"{escaped}%" if normalized == "/" else f"{escaped}/%"
+                )
+                conditions.append(
+                    "(videos.path = ? OR videos.path LIKE ? ESCAPE '\\')"
+                )
+                values.extend((normalized, descendant_pattern))
             shots = connection.execute(
-                """SELECT shots.*, videos.path AS video_path, videos.source_root,
+                f"""SELECT shots.*, videos.path AS video_path, videos.source_root,
                           videos.relative_path, videos.project_name, videos.event_date,
                           videos.media_type, videos.edit_version, videos.metadata_search_text
                    FROM shots JOIN videos ON videos.id = shots.video_id
-                   WHERE shots.status = 'ready'
-                   ORDER BY videos.path, shots.shot_index"""
+                   WHERE {' AND '.join(conditions)}
+                   ORDER BY videos.path, shots.shot_index""",
+                values,
             ).fetchall()
             for row in shots:
                 shot = dict(row)
@@ -1065,18 +1090,20 @@ class Database:
         *,
         query: str,
         results: list[dict[str, object]],
+        path: str | None = None,
     ) -> dict[str, Any]:
         session_id = uuid.uuid4().hex
         protected_results = [dict(result) for result in results]
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO search_sessions(id, query, results_json)
-                VALUES (?, ?, ?)
+                INSERT INTO search_sessions(id, query, path, results_json)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     query,
+                    path,
                     json.dumps(protected_results, ensure_ascii=False, separators=(",", ":")),
                 ),
             )
@@ -1086,7 +1113,7 @@ class Database:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, query, results_json, created_at
+                SELECT id, query, path, results_json, created_at
                 FROM search_sessions WHERE id = ?
                 """,
                 (session_id,),
@@ -1122,6 +1149,7 @@ class Database:
         return {
             "session_id": str(row["id"]),
             "query": str(row["query"]),
+            "path": str(row["path"]) if row["path"] is not None else None,
             "count": len(results),
             "available_count": len(results) - expired_count,
             "results": results,

@@ -3,6 +3,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 import subprocess
 import shutil
@@ -14,6 +15,56 @@ from video_search.server import create_server
 
 
 class ServerTest(unittest.TestCase):
+    def test_search_api_can_limit_results_to_a_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            database = Database(root / "index.sqlite3")
+            database.initialize()
+            shot_ids = []
+            for index, folder in enumerate(("selected", "outside")):
+                video_id = database.upsert_video(
+                    path=str(root / folder / "clip.mp4"),
+                    fingerprint=f"{index}:1",
+                    duration_ms=1_000,
+                    segmentation_version="v1",
+                )
+                shot_ids.append(
+                    database.insert_shot(
+                        video_id=video_id,
+                        shot_index=0,
+                        start_ms=0,
+                        end_ms=1_000,
+                        summary="人物挥手",
+                        search_text="人物 挥手",
+                        when_period=None,
+                        lighting=None,
+                        environment=None,
+                        venue=None,
+                        analysis_json={},
+                        analysis_version="a",
+                    )
+                )
+            server = create_server(("127.0.0.1", 0), database)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            parameters = urllib.parse.urlencode(
+                {"q": "人物挥手", "path": str(root / "selected")}
+            )
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{server.server_port}/api/search?{parameters}"
+                ) as response:
+                    payload = json.load(response)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(str(root / "selected"), payload["path"])
+            self.assertEqual(
+                [shot_ids[0]], [result["shot_id"] for result in payload["results"]]
+            )
+
     def test_failure_page_lists_raw_results_and_serves_failed_media(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

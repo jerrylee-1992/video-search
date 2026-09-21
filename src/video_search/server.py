@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from video_search.database import Database
-from video_search.search import HybridSearcher
+from video_search.search import HybridSearcher, normalize_search_path
 
 
 def create_server(
@@ -44,6 +44,9 @@ def create_server(
             if parsed.path == "/api/search":
                 parameters = parse_qs(parsed.query)
                 query = parameters.get("q", [""])[0].strip()
+                path_scope = normalize_search_path(
+                    parameters.get("path", [None])[0]
+                )
                 try:
                     requested_limit = int(parameters.get("limit", ["20"])[0])
                 except ValueError:
@@ -54,14 +57,28 @@ def create_server(
                     return
                 limit = requested_limit
                 try:
-                    results = active_searcher.search(query, limit=limit) if query else []
+                    if not query:
+                        results = []
+                    elif path_scope is None:
+                        results = active_searcher.search(query, limit=limit)
+                    else:
+                        results = active_searcher.search(
+                            query, limit=limit, path=path_scope
+                        )
                 except Exception as error:
                     self._send_json(
                         {"error": "search failed", "type": type(error).__name__},
                         status=HTTPStatus.INTERNAL_SERVER_ERROR,
                     )
                     return
-                self._send_json({"query": query, "count": len(results), "results": results})
+                payload: dict[str, object] = {
+                    "query": query,
+                    "count": len(results),
+                    "results": results,
+                }
+                if path_scope is not None:
+                    payload["path"] = path_scope
+                self._send_json(payload)
                 return
             session_match = re.fullmatch(
                 r"/api/search-sessions/([a-f0-9]{32})", parsed.path

@@ -23,9 +23,9 @@ class SourceMetadata:
 
 
 _MEDIA_TYPES = (
-    (re.compile(r"ceremony", re.IGNORECASE), "ceremony", "ceremony 仪式 婚礼仪式"),
-    (re.compile(r"(?:^|[_\-\s])hl(?:[_\-\s]|$)", re.IGNORECASE), "highlight", "highlight 精剪 婚礼精剪"),
-    (re.compile(r"tea", re.IGNORECASE), "tea", "tea 茶礼 敬茶"),
+    (re.compile(r"ceremony", re.IGNORECASE), "ceremony", "ceremony 仪式 典礼"),
+    (re.compile(r"(?:^|[_\-\s])hl(?:[_\-\s]|$)", re.IGNORECASE), "highlight", "highlight 精剪 集锦"),
+    (re.compile(r"tea", re.IGNORECASE), "tea", "tea 茶 茶会"),
     (re.compile(r"(?:^|[_\-\s])ts(?:[_\-\s]|$)", re.IGNORECASE), "teaser", "teaser trailer 预告"),
 )
 

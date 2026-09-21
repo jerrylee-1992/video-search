@@ -298,6 +298,54 @@ class CliTest(unittest.TestCase):
             self.assertEqual([{"role": "人群", "count": 6}], result["results"][0]["who"])
             self.assertEqual(["跳舞"], result["results"][0]["actions"])
 
+    def test_search_can_limit_results_to_a_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            database_path = root / "index.sqlite3"
+            database = Database(database_path)
+            database.initialize()
+            shot_ids = []
+            for index, folder in enumerate(("selected", "outside")):
+                video_id = database.upsert_video(
+                    path=str(root / folder / "clip.mp4"),
+                    fingerprint=f"{index}:1",
+                    duration_ms=1_000,
+                    segmentation_version="v1",
+                )
+                shot_ids.append(
+                    database.insert_shot(
+                        video_id=video_id,
+                        shot_index=0,
+                        start_ms=0,
+                        end_ms=1_000,
+                        summary="人物挥手",
+                        search_text="人物 挥手",
+                        when_period=None,
+                        lighting=None,
+                        environment=None,
+                        venue=None,
+                        analysis_json={},
+                        analysis_version="a",
+                    )
+                )
+
+            result = self._run(
+                [
+                    "--db",
+                    str(database_path),
+                    "search",
+                    "人物挥手",
+                    "--path",
+                    str(root / "selected"),
+                    "--save-session",
+                ]
+            )
+
+            self.assertEqual(str(root / "selected"), result["path"])
+            self.assertEqual([shot_ids[0]], [item["shot_id"] for item in result["results"]])
+            saved = database.get_search_session(result["session_id"])
+            self.assertEqual(str(root / "selected"), saved["path"])
+
     def test_search_can_use_a_configured_text_embedding_command(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

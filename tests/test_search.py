@@ -30,6 +30,92 @@ class FlatMeaningEmbedder:
 
 
 class SearchTest(unittest.TestCase):
+    def test_path_scope_accepts_an_exact_file_or_a_directory_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            database = Database(root / "index.sqlite3")
+            database.initialize()
+            paths = [
+                root / "project" / "one.mp4",
+                root / "project" / "nested" / "two.mp4",
+                root / "project-other" / "outside.mp4",
+            ]
+            shot_ids = []
+            for index, path in enumerate(paths):
+                video_id = database.upsert_video(
+                    path=str(path),
+                    fingerprint=f"{index}:1",
+                    duration_ms=1_000,
+                    segmentation_version="v1",
+                )
+                shot_ids.append(
+                    database.insert_shot(
+                        video_id=video_id,
+                        shot_index=0,
+                        start_ms=0,
+                        end_ms=1_000,
+                        summary="人物挥手",
+                        search_text="人物 挥手",
+                        when_period=None,
+                        lighting=None,
+                        environment=None,
+                        venue=None,
+                        analysis_json={},
+                        analysis_version="a",
+                    )
+                )
+
+            directory_results = HybridSearcher(database).search(
+                "人物挥手", path=root / "project"
+            )
+            exact_file_results = HybridSearcher(database).search(
+                "人物挥手", path=paths[1]
+            )
+
+            self.assertEqual(
+                shot_ids[:2], [result["shot_id"] for result in directory_results]
+            )
+            self.assertEqual(
+                [shot_ids[1]],
+                [result["shot_id"] for result in exact_file_results],
+            )
+
+    def test_path_scope_treats_sql_wildcards_as_literal_characters(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            database = Database(root / "index.sqlite3")
+            database.initialize()
+            shot_ids = []
+            for index, folder in enumerate(("100%_selected", "100xxselected")):
+                video_id = database.upsert_video(
+                    path=str(root / folder / "clip.mp4"),
+                    fingerprint=f"{index}:1",
+                    duration_ms=1_000,
+                    segmentation_version="v1",
+                )
+                shot_ids.append(
+                    database.insert_shot(
+                        video_id=video_id,
+                        shot_index=0,
+                        start_ms=0,
+                        end_ms=1_000,
+                        summary="人物挥手",
+                        search_text="人物 挥手",
+                        when_period=None,
+                        lighting=None,
+                        environment=None,
+                        venue=None,
+                        analysis_json={},
+                        analysis_version="a",
+                    )
+                )
+
+            results = HybridSearcher(database).search(
+                "人物挥手", path=root / "100%_selected"
+            )
+
+            self.assertEqual([shot_ids[0]], [result["shot_id"] for result in results])
+
     def test_project_and_media_type_metadata_are_searchable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Database(Path(directory) / "index.sqlite3")

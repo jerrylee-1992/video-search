@@ -14,7 +14,9 @@ from PIL import Image
 
 from video_search.analysis import InvalidAnalyzerOutputError
 from video_search.mage_client import (
+    COMPACT_RETRY_PROMPT,
     MageServiceAnalyzer,
+    _trim_analysis_collections,
     _validate_analysis_quality,
     analyze_clip,
     extract_uniform_frames,
@@ -23,6 +25,16 @@ from video_search.media import Segment
 
 
 class MageClientTest(unittest.TestCase):
+    def test_analysis_prompts_do_not_assume_a_wedding_domain(self) -> None:
+        primary_prompt = (
+            Path(__file__).resolve().parents[1] / "prompts" / "shot-analysis-v1.txt"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("婚礼", primary_prompt)
+        self.assertNotIn("婚礼", COMPACT_RETRY_PROMPT)
+        self.assertIn("素材类型不固定", primary_prompt)
+        self.assertIn("素材类型不固定", COMPACT_RETRY_PROMPT)
+
     def test_records_both_raw_responses_when_compact_retry_is_invalid(self) -> None:
         analyzer = MageServiceAnalyzer(
             base_url="http://127.0.0.1/v1",
@@ -44,7 +56,7 @@ class MageClientTest(unittest.TestCase):
 
         with patch(
             "video_search.mage_client.extract_uniform_frames",
-            side_effect=[[Path("primary.jpg")], [Path("compact.jpg")]],
+            return_value=[Path("primary.jpg")],
         ), patch.object(analyzer, "_analyze_frames", side_effect=failures):
             with self.assertRaises(InvalidAnalyzerOutputError) as raised:
                 analyzer.analyze(Path("clip.mp4"), Segment(0, 1_000))
@@ -164,7 +176,7 @@ class MageClientTest(unittest.TestCase):
         self.assertEqual("人物在室内行走", analysis.summary)
         self.assertEqual(3, attempts)
 
-    def test_retries_invalid_analysis_with_four_frames_and_a_compact_prompt(self) -> None:
+    def test_retries_invalid_analysis_with_one_frame_and_a_compact_prompt(self) -> None:
         requests: list[dict[str, object]] = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -175,7 +187,7 @@ class MageClientTest(unittest.TestCase):
                 content = request["messages"][0]["content"]
                 image_count = sum(item["type"] == "image_url" for item in content)
                 prompt = content[-1]["text"]
-                if image_count == 4 and "events 最多 3 项" in prompt:
+                if image_count == 1 and "events: 对象数组，最多 3 项" in prompt:
                     answer = json.dumps(
                         {
                             "summary": "新人在雪山湖边拥抱",
@@ -255,7 +267,7 @@ class MageClientTest(unittest.TestCase):
         self.assertGreaterEqual(timestamp_ms, 0)
         self.assertLess(timestamp_ms, 2_000)
         self.assertEqual(
-            [8, 4],
+            [8, 1],
             [
                 sum(
                     item["type"] == "image_url"
@@ -265,7 +277,7 @@ class MageClientTest(unittest.TestCase):
             ],
         )
 
-    def test_retries_prompt_placeholder_analysis_with_four_frames(self) -> None:
+    def test_retries_prompt_placeholder_analysis_with_one_frame(self) -> None:
         requests: list[dict[str, object]] = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -277,9 +289,9 @@ class MageClientTest(unittest.TestCase):
                 image_count = sum(item["type"] == "image_url" for item in content)
                 prompt = content[-1]["text"]
                 if (
-                    image_count == 4
-                    and "内容质量校验" in prompt
-                    and "数组每一项必须是 JSON 对象" in prompt
+                    image_count == 1
+                    and "禁止复制字段说明" in prompt
+                    and "events: 对象数组，最多 3 项" in prompt
                 ):
                     answer_payload = {
                         "summary": "白色兰花在画面中轻微晃动",
@@ -381,9 +393,10 @@ class MageClientTest(unittest.TestCase):
 
         self.assertEqual("白色兰花在画面中轻微晃动", analysis.summary)
         compact_prompt = requests[1]["messages"][0]["content"][-1]["text"]
-        self.assertIn("数组每一项必须是 JSON 对象", compact_prompt)
+        self.assertIn("禁止复制字段说明", compact_prompt)
+        self.assertNotIn("只输出 JSON", compact_prompt)
         self.assertEqual(
-            [8, 4],
+            [8, 1],
             [
                 sum(
                     item["type"] == "image_url"
@@ -414,6 +427,99 @@ class MageClientTest(unittest.TestCase):
                 "events": [],
             }
         )
+
+    def test_trims_low_confidence_events_and_resequences_them(self) -> None:
+        payload = _trim_analysis_collections(
+            {
+                "events": [
+                    {"sequence": 0, "action": "一", "confidence": 0.9},
+                    {"sequence": 1, "action": "二", "confidence": 0.1},
+                    {"sequence": 2, "action": "三", "confidence": 0.8},
+                    {"sequence": 3, "action": "四", "confidence": 0.2},
+                    {"sequence": 4, "action": "五", "confidence": 0.7},
+                ]
+            }
+        )
+
+        self.assertEqual(["一", "三", "五"], [item["action"] for item in payload["events"]])
+        self.assertEqual([0, 1, 2], [item["sequence"] for item in payload["events"]])
+
+    def test_trims_low_confidence_objects(self) -> None:
+        payload = _trim_analysis_collections(
+            {
+                "objects": [
+                    {"name": str(index), "confidence": index / 10}
+                    for index in range(10)
+                ]
+            }
+        )
+
+        self.assertEqual(
+            [str(index) for index in range(2, 10)],
+            [item["name"] for item in payload["objects"]],
+        )
+
+    def test_does_not_trim_collections_at_the_limit(self) -> None:
+        payload = {
+            "events": [{"sequence": index} for index in range(3)],
+            "objects": [{"name": str(index)} for index in range(8)],
+        }
+
+        self.assertEqual(payload, _trim_analysis_collections(payload))
+
+    def test_analyze_clip_discards_low_confidence_overflow(self) -> None:
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "summary": "宾客在婚宴长桌旁交谈",
+                                "who": [],
+                                "where": {},
+                                "when": {},
+                                "events": [
+                                    {
+                                        "sequence": index,
+                                        "action": f"动作{index}",
+                                        "description": f"描述{index}",
+                                        "confidence": confidence,
+                                    }
+                                    for index, confidence in enumerate(
+                                        (0.9, 0.1, 0.8, 0.7)
+                                    )
+                                ],
+                                "objects": [],
+                                "camera": {},
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            frame = Path(directory) / "frame.jpg"
+            frame.write_bytes(b"frame")
+            with patch(
+                "video_search.mage_client.urlopen",
+                return_value=io.BytesIO(json.dumps(response).encode("utf-8")),
+            ) as mocked_urlopen:
+                analysis = analyze_clip(
+                    frame_paths=[frame],
+                    prompt="只输出 JSON",
+                    base_url="http://127.0.0.1/v1",
+                    model="mage-test",
+                    api_key="EMPTY",
+                    timeout_seconds=1,
+                )
+
+        self.assertEqual(1, mocked_urlopen.call_count)
+        self.assertEqual(
+            ["动作0", "动作2", "动作3"],
+            [event["action"] for event in analysis.events],
+        )
+        self.assertEqual([0, 1, 2], [event["sequence"] for event in analysis.events])
 
     def test_extracts_the_requested_number_of_uniform_frames(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -9,7 +9,7 @@ Search the local SQLite index through the stable CLI. Keep the ranked result set
 
 ## Local configuration
 
-- Project: `/Users/jerry/Documents/Projects/video-search`
+- Project: `/Users/jerry-workstation/Work/video-search`
 - Prefer a database path explicitly provided by the user.
 - Otherwise use `VIDEO_SEARCH_DB` when set, then the existing project database `.video-search-cache/optiq-test/index.sqlite3`, then the CLI default database.
 - Never index, reanalyze, move, upload, or delete footage unless the user separately asks.
@@ -26,7 +26,7 @@ From the project directory, run:
   --web-base-url http://127.0.0.1:8765
 ```
 
-Use a task-specific shell variable such as `VIDEO_SEARCH_DB_PATH`; do not repurpose system variables. Treat the JSON as the source of truth. A zero-count response means no indexed match; do not substitute visually plausible footage unless the user asks for approximate results.
+Use a task-specific shell variable such as `VIDEO_SEARCH_DB_PATH`; do not repurpose system variables. When the user specifies a source file or directory, resolve it to an absolute local path and append `--path "$VIDEO_SEARCH_PATH"` to the command. A file path limits results to that indexed video; a directory includes its descendants. Do not infer a path restriction from the query text alone. Treat the JSON as the source of truth. A zero-count response means no indexed match; do not substitute visually plausible footage unless the user asks for approximate results.
 
 Return a concise numbered list. For each result retain `shot_id`, `video_path`, `start_ms`, `end_ms`, `summary`, `who`, `when_period`, `environment`, `venue`, `actions`, and `score`. Also retain `session_id` and `result_url` in the current task so later references remain exact. Video bytes are not part of the conversation context.
 
@@ -57,4 +57,5 @@ Use `inspect <shot_id>` when the user requests the complete stored analysis. Do 
 | Using the first SQLite file found | Follow the database selection order above |
 | Treating “第二个” as shot index 1 | Resolve rank 2 within the saved session |
 | Re-searching before a follow-up | Reuse `session_id` and its ordered results |
+| Filtering paths in the natural-language query | Pass the absolute file or directory with `--path` |
 | Claiming a path lets cloud ChatGPT read a file | A path is metadata; local access or upload is still required |

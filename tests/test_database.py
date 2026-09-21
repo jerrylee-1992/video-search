@@ -110,10 +110,12 @@ class DatabaseTest(unittest.TestCase):
             session = database.create_search_session(
                 query="夜晚户外有人跳舞",
                 results=ranked_results,
+                path="/footage",
             )
             loaded = database.get_search_session(session["session_id"])
 
             self.assertEqual("夜晚户外有人跳舞", loaded["query"])
+            self.assertEqual("/footage", loaded["path"])
             self.assertEqual(1, loaded["count"])
             self.assertEqual([{**ranked_results[0], "expired": True}], loaded["results"])
 

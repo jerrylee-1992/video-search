@@ -15,6 +15,8 @@ class SourceMetadataTest(unittest.TestCase):
         self.assertEqual("2025-02-08", metadata.event_date)
         self.assertEqual("highlight", metadata.media_type)
         self.assertEqual("v2", metadata.edit_version)
+        self.assertIn("集锦", metadata.search_text)
+        self.assertNotIn("婚礼精剪", metadata.search_text)
         self.assertEqual(str(path.relative_to(root)), metadata.relative_path)
         self.assertIn("精剪", metadata.search_text)
         self.assertNotIn("白天", metadata.search_text)
@@ -27,6 +29,8 @@ class SourceMetadataTest(unittest.TestCase):
 
         self.assertEqual("ceremony", metadata.media_type)
         self.assertIn("仪式", metadata.search_text)
+        self.assertIn("典礼", metadata.search_text)
+        self.assertNotIn("婚礼仪式", metadata.search_text)
 
 
 if __name__ == "__main__":

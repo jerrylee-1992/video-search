@@ -16,7 +16,9 @@
     .status { display:grid; justify-items:end; gap:8px; color:var(--muted); font-size:13px; white-space:nowrap; }
     .status a { color:var(--rose-dark); text-underline-offset:3px; }
     .searchbar { display:flex; gap:10px; padding:10px; background:rgba(255,253,249,.86); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 45px rgba(78,57,45,.08); backdrop-filter:blur(14px); }
+    .search-fields { flex:1; min-width:0; display:grid; }
     input { flex:1; min-width:0; border:0; outline:0; background:transparent; padding:12px 14px; font-size:17px; color:var(--ink); }
+    #path-filter { border-top:1px solid var(--line); padding-top:10px; padding-bottom:9px; color:var(--muted); font-size:13px; }
     button { border:0; border-radius:12px; padding:0 22px; background:var(--rose); color:#fff; font-weight:650; cursor:pointer; transition:.2s ease; }
     button:hover { background:var(--rose-dark); transform:translateY(-1px); }
     .hints { display:flex; flex-wrap:wrap; gap:8px; margin:14px 2px 34px; }
@@ -66,14 +68,14 @@
     <div><div class="eyebrow">Local video archive</div><h1>镜头搜索</h1><div class="sub">用自然语言搜索本机视频素材，直接定位到每个视频中的准确镜头范围。</div></div>
     <div class="status"><span id="status">正在读取索引…</span><a href="/failures">查看失败镜头</a></div>
   </header>
-  <form class="searchbar" id="form"><input id="query" autofocus placeholder="例如：傍晚草坪上，新人拥抱，镜头缓慢推进"><button>自然语言搜索</button></form>
-  <div class="hints"><span class="hint">新娘整理头纱</span><span class="hint">when:夜晚 宾客跳舞</span><span class="hint">environment:户外草坪 新人拥抱</span><span class="hint">action:挥手</span></div>
+  <form class="searchbar" id="form"><div class="search-fields"><input id="query" autofocus placeholder="例如：傍晚街道上，人物骑车经过，镜头缓慢跟随"><input id="path-filter" placeholder="限定文件或目录路径（可选）"></div><button>自然语言搜索</button></form>
+  <div class="hints"><span class="hint">人物整理服装</span><span class="hint">when:夜晚 人群跳舞</span><span class="hint">environment:户外草坪 人物奔跑</span><span class="hint">action:挥手</span></div>
   <div class="meta" id="meta">输入描述开始搜索</div><section class="grid" id="results"></section>
 </main>
 <dialog id="player"><video id="video" controls playsinline></video><div class="playerbar"><span id="player-title"></span><button id="close" type="button">关闭</button></div><section class="analysis" id="analysis-details" aria-live="polite"><div class="analysis-loading">正在读取镜头分析…</div></section></dialog>
 <script src="/request-gate.js"></script>
 <script>
-const form=document.querySelector('#form'),input=document.querySelector('#query'),grid=document.querySelector('#results'),meta=document.querySelector('#meta');
+const form=document.querySelector('#form'),input=document.querySelector('#query'),pathInput=document.querySelector('#path-filter'),grid=document.querySelector('#results'),meta=document.querySelector('#meta');
 const dialog=document.querySelector('#player'),video=document.querySelector('#video'),playerTitle=document.querySelector('#player-title'),analysisDetails=document.querySelector('#analysis-details');
 let detailRequest=0;
 const seconds=value=>{const m=Math.floor(value/60),s=(value%60).toFixed(1).padStart(4,'0');return `${m}:${s}`};
@@ -220,18 +222,18 @@ function renderShotDetail(detail){
 async function status(){const data=await fetch('/api/status').then(response=>response.json());const failed=data.failed_shots?` · ${data.failed_shots} 个失败`:'';document.querySelector('#status').textContent=`${data.videos.total} 个视频 · ${data.ready_shots}/${data.shots} 个镜头可搜索${failed}`}
 const tokenQuery=item=>item.shot_token?`?token=${encodeURIComponent(item.shot_token)}`:'';
 function play(item){if(item.expired)return;video.src=`/media/${item.shot_id}${tokenQuery(item)}`;video.dataset.start=item.start_seconds;video.dataset.end=item.end_seconds;playerTitle.textContent=`${item.summary} · ${seconds(item.start_seconds)}–${seconds(item.end_seconds)}`;if(!dialog.open)dialog.showModal();dialog.scrollTop=0;loadShotDetail(item.shot_id,item.shot_token);video.addEventListener('loadedmetadata',()=>{video.currentTime=Number(video.dataset.start);video.play().catch(()=>{})},{once:true})}
-function render(data){input.value=data.query||'';const expired=data.expired_count?` · ${data.expired_count} 个已过期`:'';meta.textContent=`找到 ${data.count} 个镜头${expired}`;grid.innerHTML='';if(!data.count){grid.innerHTML='<div class="empty">没有找到符合条件的镜头，试试更宽泛的描述。</div>';return}data.results.forEach((item,index)=>{const card=document.createElement('article');const tags=[item.when_period,item.environment,item.venue].filter(Boolean);card.dataset.shotId=item.shot_id;card.innerHTML=item.expired?`<div class="empty">${index+1}. 此镜头已过期，请重新搜索。</div>`:`<div class="thumb"><img src="/thumbnail/${item.shot_id}${tokenQuery(item)}" alt="" onerror="this.style.display='none'"><span class="duration">${seconds(item.start_seconds)}–${seconds(item.end_seconds)}</span></div><div class="body"><h2></h2><div class="tags"></div><div class="path"></div></div>`;if(item.expired){grid.appendChild(card);return}card.querySelector('h2').textContent=`${index+1}. ${item.summary}`;card.querySelector('.path').textContent=item.video_path;tags.forEach(tag=>{const el=document.createElement('span');el.className='tag';el.textContent=tag;card.querySelector('.tags').appendChild(el)});card.addEventListener('click',()=>play(item));grid.appendChild(card)});const requestedShot=new URLSearchParams(location.search).get('shot');if(requestedShot){const item=data.results.find(result=>!result.expired&&String(result.shot_id)===requestedShot);if(item)play(item)}}
+function render(data){input.value=data.query||'';pathInput.value=data.path||'';const expired=data.expired_count?` · ${data.expired_count} 个已过期`:'';const scope=data.path?` · 路径：${data.path}`:'';meta.textContent=`找到 ${data.count} 个镜头${expired}${scope}`;grid.innerHTML='';if(!data.count){grid.innerHTML='<div class="empty">没有找到符合条件的镜头，试试更宽泛的描述或路径。</div>';return}data.results.forEach((item,index)=>{const card=document.createElement('article');const tags=[item.when_period,item.environment,item.venue].filter(Boolean);card.dataset.shotId=item.shot_id;card.innerHTML=item.expired?`<div class="empty">${index+1}. 此镜头已过期，请重新搜索。</div>`:`<div class="thumb"><img src="/thumbnail/${item.shot_id}${tokenQuery(item)}" alt="" onerror="this.style.display='none'"><span class="duration">${seconds(item.start_seconds)}–${seconds(item.end_seconds)}</span></div><div class="body"><h2></h2><div class="tags"></div><div class="path"></div></div>`;if(item.expired){grid.appendChild(card);return}card.querySelector('h2').textContent=`${index+1}. ${item.summary}`;card.querySelector('.path').textContent=item.video_path;tags.forEach(tag=>{const el=document.createElement('span');el.className='tag';el.textContent=tag;card.querySelector('.tags').appendChild(el)});card.addEventListener('click',()=>play(item));grid.appendChild(card)});const requestedShot=new URLSearchParams(location.search).get('shot');if(requestedShot){const item=data.results.find(result=>!result.expired&&String(result.shot_id)===requestedShot);if(item)play(item)}}
 async function loadShotDetail(shotId,shotToken){
   const request=++detailRequest;
   analysisDetails.innerHTML='<div class="analysis-loading">正在读取镜头分析…</div>';
   try{const response=await fetch(`/api/shots/${shotId}${shotToken?`?token=${encodeURIComponent(shotToken)}`:''}`);if(!response.ok)throw new Error('missing');const detail=await response.json();if(request===detailRequest)renderShotDetail(detail)}catch(error){if(request!==detailRequest)return;analysisDetails.innerHTML='<div class="analysis-error">无法读取分析详情，视频仍可正常播放。</div>'}
 }
-function search(q){meta.textContent='正在搜索…';grid.innerHTML='';history.replaceState(null,'',searchLocation(q));return latestRequest.run(async()=>{const response=await fetch(`/api/search?q=${encodeURIComponent(q)}`);if(!response.ok)throw new Error('search');return response.json()},render,()=>{meta.textContent='搜索失败，请稍后重试';grid.innerHTML='<div class="empty">无法完成搜索，请检查本地服务后重试。</div>'})}
-function load(){status().catch(()=>{document.querySelector('#status').textContent='索引状态不可用'});const match=location.pathname.match(/^\/search\/session\/([a-f0-9]{32})$/);if(!match){const query=queryFromLocation(location);if(query)search(query);return}meta.textContent='正在读取已保存的搜索结果…';return latestRequest.run(async()=>{const response=await fetch(`/api/search-sessions/${match[1]}`);if(!response.ok)throw new Error('missing');return response.json()},render,()=>{meta.textContent='搜索会话不存在或已不可用';grid.innerHTML='<div class="empty">无法读取这次搜索结果，请重新搜索。</div>'})}
+function search(q,path=pathInput.value.trim()){meta.textContent='正在搜索…';grid.innerHTML='';history.replaceState(null,'',searchLocation(q,path));const scope=path?`&path=${encodeURIComponent(path)}`:'';return latestRequest.run(async()=>{const response=await fetch(`/api/search?q=${encodeURIComponent(q)}${scope}`);if(!response.ok)throw new Error('search');return response.json()},render,()=>{meta.textContent='搜索失败，请稍后重试';grid.innerHTML='<div class="empty">无法完成搜索，请检查本地服务后重试。</div>'})}
+function load(){status().catch(()=>{document.querySelector('#status').textContent='索引状态不可用'});const match=location.pathname.match(/^\/search\/session\/([a-f0-9]{32})$/);if(!match){const query=queryFromLocation(location);if(query)search(query,pathFromLocation(location)||'');return}meta.textContent='正在读取已保存的搜索结果…';return latestRequest.run(async()=>{const response=await fetch(`/api/search-sessions/${match[1]}`);if(!response.ok)throw new Error('missing');return response.json()},render,()=>{meta.textContent='搜索会话不存在或已不可用';grid.innerHTML='<div class="empty">无法读取这次搜索结果，请重新搜索。</div>'})}
 video.addEventListener('timeupdate',()=>{if(video.currentTime>=Number(video.dataset.end))video.pause()});
 document.querySelector('#close').addEventListener('click',()=>{video.pause();dialog.close()});
-form.addEventListener('submit',event=>{event.preventDefault();const q=input.value.trim();if(q)search(q)});
-document.querySelectorAll('.hint').forEach(el=>el.addEventListener('click',()=>{input.value=el.textContent;search(input.value)}));
+form.addEventListener('submit',event=>{event.preventDefault();const q=input.value.trim();if(q)search(q,pathInput.value.trim())});
+document.querySelectorAll('.hint').forEach(el=>el.addEventListener('click',()=>{input.value=el.textContent;search(input.value,pathInput.value.trim())}));
 load();
 </script>
 </body>

@@ -13,9 +13,15 @@
       }
     }
   };
-  root.searchLocation=function(query){return '/?q='+encodeURIComponent(query)};
+  root.searchLocation=function(query,path){
+    return '/?q='+encodeURIComponent(query)+(path?'&path='+encodeURIComponent(path):'');
+  };
   root.queryFromLocation=function(location){
     if(location.pathname!=='/')return null;
     return new URLSearchParams(location.search).get('q');
+  };
+  root.pathFromLocation=function(location){
+    if(location.pathname!=='/')return null;
+    return new URLSearchParams(location.search).get('path');
   };
 })(typeof globalThis==='undefined'?window:globalThis);

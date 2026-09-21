@@ -16,7 +16,7 @@ function harness(url){
   return {context,nodes,requests,location};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-const complete=(request,query)=>request.resolve({ok:true,json:async()=>({query,count:0,results:[]})});
+const complete=(request,query,path)=>request.resolve({ok:true,json:async()=>({query,path,count:0,results:[]})});
 (async()=>{
   const h=harness('http://127.0.0.1:8766/search/session/'+'a'.repeat(32)+'?shot=28');
   await tick();assert.equal(h.nodes.get('#status').textContent,'2 个视频 · 27/28 个镜头可搜索');
@@ -27,4 +27,6 @@ const complete=(request,query)=>request.resolve({ok:true,json:async()=>({query,c
   h.context.search('当前失败');h.requests[6].resolve({ok:false});await tick();assert.ok(h.nodes.get('#meta').textContent.includes('失败'));
   h.context.search('已恢复');complete(h.requests[7],'已恢复');await tick();assert.equal(h.nodes.get('#query').value,'已恢复');
   const refreshed=harness(h.location.href);await tick();assert.equal(refreshed.requests[0].url,'/api/search?q='+encodeURIComponent('已恢复'));
+  h.context.search('限定范围','/media/project A');assert.equal(h.requests[8].url,'/api/search?q='+encodeURIComponent('限定范围')+'&path='+encodeURIComponent('/media/project A'));complete(h.requests[8],'限定范围','/media/project A');await tick();assert.equal(h.nodes.get('#path-filter').value,'/media/project A');
+  const scoped=harness(h.location.href);await tick();assert.equal(scoped.requests[0].url,'/api/search?q='+encodeURIComponent('限定范围')+'&path='+encodeURIComponent('/media/project A'));
 })().catch(error=>{console.error(error);process.exitCode=1});

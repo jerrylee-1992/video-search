@@ -4,6 +4,7 @@ import math
 import re
 from collections import Counter
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Protocol
 
 from video_search.database import Database
@@ -29,6 +30,15 @@ FILTER_PATTERN = re.compile(
 DEFAULT_EVENT_WEIGHT = 0.15
 COMMON_ACTION_MIN_DOCUMENTS = 3
 COMMON_ACTION_DOCUMENT_RATIO = 0.2
+
+
+def normalize_search_path(path: str | Path | None) -> str | None:
+    if path is None:
+        return None
+    value = str(path).strip()
+    if not value:
+        return None
+    return str(Path(value).expanduser().resolve(strict=False))
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
@@ -143,7 +153,13 @@ class HybridSearcher:
             raise ValueError("semantic_min_score must be between -1 and 1")
         self.semantic_min_score = semantic_min_score
 
-    def search(self, query: str, *, limit: int = 20) -> list[dict[str, object]]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        path: str | Path | None = None,
+    ) -> list[dict[str, object]]:
         if limit < 1:
             raise ValueError("limit must be positive")
         filters = [
@@ -165,6 +181,7 @@ class HybridSearcher:
         records = self.database.list_search_shots(
             text_embedding_version=(self.text_embedder.version if self.text_embedder else None),
             visual_embedding_version=(self.visual_embedder.version if self.visual_embedder else None),
+            path_scope=normalize_search_path(path),
         )
         shots_with_details = [(record["shot"], record["details"]) for record in records]
         action_document_frequency: Counter[str] = Counter()

@@ -13,6 +13,7 @@
 - 保存文本向量、代表帧、视觉向量及各自版本。
 - 从目录和文件名提取项目、日期、素材类型、剪辑版本及相对路径并参与搜索。
 - 混合文本语义、视觉语义、字面匹配、结构化事件重排和自由值硬筛选。
+- 支持把搜索限定到一个已索引视频文件，或指定目录及其全部子目录。
 - 提供 JSON CLI 和本地网页；结果包含源文件、镜头开始/结束毫秒与秒数。
 
 ## 运行
@@ -24,7 +25,8 @@ uv sync
 uv run video-search --db ./video-search.sqlite3 init
 uv run video-search --db ./video-search.sqlite3 scan /path/to/videos
 uv run video-search --db ./video-search.sqlite3 status
-uv run video-search --db ./video-search.sqlite3 search "when:蓝调时刻 新娘挥手"
+uv run video-search --db ./video-search.sqlite3 search "when:蓝调时刻 人物挥手"
+uv run video-search --db ./video-search.sqlite3 search "人物挥手" --path /path/to/project
 uv run video-search --db ./video-search.sqlite3 inspect 1
 uv run video-search --db ./video-search.sqlite3 serve --port 8765
 ```
@@ -140,12 +142,14 @@ uv run video-search --db ./video-search.sqlite3 embed-text
 
 ```bash
 uv run video-search --db ./video-search.sqlite3 search \
-  "直升机里的新郎新娘" \
+  "直升机驾驶舱里的人物" \
   --text-embedding-model BAAI/bge-small-zh-v1.5
 
 uv run video-search --db ./video-search.sqlite3 serve \
   --text-embedding-model BAAI/bge-small-zh-v1.5
 ```
+
+`search --path` 可接收一个已索引的视频文件，也可接收目录；目录会包含其所有子目录，但不会用模糊前缀误匹配相邻目录。网页首页的“限定文件或目录路径”提供相同过滤能力，搜索 URL 会保留该路径。
 
 索引镜头文本使用 passage embedding，用户查询使用 query embedding。向量版本自动保存为 `fastembed-v1:BAAI/bge-small-zh-v1.5`。
 
@@ -182,6 +186,7 @@ uv run video-search --db ./.video-search-cache/optiq-test/index.sqlite3 \
 
 ```bash
 .venv/bin/video-search --db <index.sqlite3> search "<自然语言>" \
+  --path "<可选的文件或目录路径>" \
   --limit 20 \
   --text-embedding-model BAAI/bge-small-zh-v1.5 \
   --save-session \

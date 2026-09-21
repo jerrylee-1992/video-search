@@ -27,7 +27,7 @@ from video_search.media import (
 )
 from video_search.mage_client import DEFAULT_MAGE_MAX_LONG_EDGE, MageServiceAnalyzer
 from video_search.mage_local import DEFAULT_MODEL, environment_report, serve_local_mage
-from video_search.search import HybridSearcher
+from video_search.search import HybridSearcher, normalize_search_path
 from video_search.server import serve
 
 
@@ -79,6 +79,11 @@ def _parser() -> argparse.ArgumentParser:
     search = commands.add_parser("search", help="search indexed shots")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=20)
+    search.add_argument(
+        "--path",
+        type=Path,
+        help="only search an indexed video file or videos below this directory",
+    )
     search.add_argument(
         "--save-session",
         action="store_true",
@@ -344,21 +349,25 @@ def main(arguments: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "search":
             text_embedder, visual_embedder = _embedding_adapters(args)
+            path_scope = normalize_search_path(args.path)
             results = HybridSearcher(
                 database,
                 text_embedder=text_embedder,
                 visual_embedder=visual_embedder,
                 semantic_min_score=args.semantic_min_score,
-            ).search(args.query, limit=args.limit)
+            ).search(args.query, limit=args.limit, path=path_scope)
             payload: dict[str, object] = {
                 "query": args.query,
                 "count": len(results),
                 "results": results,
             }
+            if path_scope is not None:
+                payload["path"] = path_scope
             if args.save_session:
                 session = database.create_search_session(
                     query=args.query,
                     results=results,
+                    path=path_scope,
                 )
                 payload["session_id"] = session["session_id"]
                 payload["result_url"] = (
